@@ -3,12 +3,14 @@ import unittest
 from windowping.providers.base import Usage, Window
 from windowping.render import (
     HELP_HTML,
+    help_html,
     bar_bare,
     fmt_delta,
     fmt_tokens,
     message_error,
     message_ping,
     message_ping_failed,
+    message_recovered,
     message_weekly,
     strip_tags,
     telegram_status,
@@ -71,10 +73,10 @@ class TelegramStatusTest(unittest.TestCase):
         self.assertIn("&lt;bad &amp; ugly&gt;", text)
 
     def test_header(self):
-        text = telegram_status([("codex", usage(), None)], NOW, header="лимиты")
-        self.assertTrue(text.startswith("<b>лимиты</b>"))
+        text = telegram_status([("codex", usage(), None)], NOW, header="limits")
+        self.assertTrue(text.startswith("<b>limits</b>"))
 
-    def test_details_are_translated_and_deduplicated(self):
+    def test_details_are_deduplicated(self):
         text = telegram_status(
             [
                 (
@@ -85,14 +87,54 @@ class TelegramStatusTest(unittest.TestCase):
             ],
             NOW,
         )
-        self.assertIn("3 сброс(а) в запасе", text)
+        self.assertIn("3 reset credit(s) available", text)
         self.assertNotIn("$1 of $2", text)  # bar duplicate dropped
 
     def test_unenforced_window(self):
         text = telegram_status(
             [("codex", usage(five=Window(enforced=False)), None)], NOW
         )
+        self.assertIn("no limit", text)
+
+
+class RussianTest(unittest.TestCase):
+    """Russian is the only localized surface; everything else is English."""
+
+    def test_status_ru(self):
+        text = telegram_status(
+            [("codex", usage(plan="plus", details=["3 reset credit(s) available"]), None)],
+            NOW,
+            header="лимиты",
+            lang="ru",
+        )
+        self.assertTrue(text.startswith("<b>лимиты</b>"))
+        self.assertIn("3 сброс(а) в запасе", text)
+
+    def test_no_limit_ru(self):
+        text = telegram_status([("codex", usage(five=Window(enforced=False)), None)], NOW, lang="ru")
         self.assertIn("нет лимита", text)
+
+    def test_messages_ru(self):
+        self.assertIn("новое окно", message_ping("Codex", "m", 16, 1.2, lang="ru"))
+        self.assertIn("5h-окно до", message_ping("Codex", None, None, None, reset_at=NOW, lang="ru"))
+        self.assertIn("пинг не прошёл", message_ping_failed("Codex", "boom", lang="ru"))
+        self.assertIn("недельный лимит выбран", message_weekly("GLM", 100, None, NOW, lang="ru"))
+        self.assertIn("ошибка чтения лимитов", message_error("GLM", "boom", lang="ru"))
+        self.assertIn("снова на связи", message_recovered("GLM", lang="ru"))
+
+    def test_help_ru(self):
+        text = help_html("ru")
+        self.assertIn("Команды", text)
+        self.assertIn("/status", text)
+        self.assertIn("Обозначения", text)
+
+    def test_monthly_detail_ru(self):
+        text = telegram_status(
+            [("commandcode", usage(details=["$46.27 monthly credits left"]), None)],
+            NOW,
+            lang="ru",
+        )
+        self.assertIn("на месяц осталось $46.27", text)
 
 
 class MessageTest(unittest.TestCase):
@@ -105,7 +147,7 @@ class MessageTest(unittest.TestCase):
 
     def test_ping_with_reset(self):
         text = message_ping("Codex", None, None, None, reset_at=NOW)
-        self.assertIn("5h-окно до", text)
+        self.assertIn("5h window until", text)
 
     def test_weekly(self):
         text = message_weekly("GLM", 100, None)
@@ -124,6 +166,10 @@ class HelpAndFallbackTest(unittest.TestCase):
     def test_help_mentions_commands(self):
         for command in ("/status", "/ping", "/help"):
             self.assertIn(command, HELP_HTML)
+
+    def test_help_defaults_to_english(self):
+        self.assertIn("Commands", HELP_HTML)
+        self.assertNotIn("Команды", HELP_HTML)
 
     def test_strip_tags(self):
         plain = strip_tags("✅ <b>X</b> — <pre>a &lt; b</pre>")

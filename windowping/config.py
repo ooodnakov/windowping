@@ -99,6 +99,16 @@ class TelegramConfig:
     poll: bool = False
     allow_chat_ids: tuple[int, ...] = ()
     silent: bool = False
+    # "auto" follows the sender's Telegram language (notifications use the
+    # owner's last seen language); "en"/"ru" pin everything.
+    lang: str = "auto"
+
+    def resolve_lang(self, sender_lang: str | None = None) -> str:
+        from .i18n import normalize
+
+        if self.lang and self.lang.strip().lower() != "auto":
+            return normalize(self.lang)
+        return normalize(sender_lang)
 
     def resolve_token(self) -> str:
         if self.bot_token.strip():
@@ -189,6 +199,7 @@ bot_token = ""
 bot_token_env = "WINDOWPING_BOT_TOKEN"
 chat_id = 0
 # Which transitions are worth a message: ping, error, weekly.
+# lang = "auto" follows each sender's Telegram language ("en"/"ru" pin it).
 notify_events = ["ping", "error", "weekly"]
 # Answer /status and /ping in the bot. Needs a token that no other process is
 # long-polling (a Hermes gateway token will fight over getUpdates).
@@ -252,5 +263,6 @@ def load(path: Path | None = None) -> Config:
         poll=_bool(tg_raw.get("poll"), False),
         allow_chat_ids=allow_ids,
         silent=_bool(tg_raw.get("silent"), False),
+        lang=str(tg_raw.get("lang") or "auto"),
     )
     return Config(general=general, providers=providers, telegram=telegram, path=path)

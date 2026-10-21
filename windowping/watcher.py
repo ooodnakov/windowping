@@ -103,6 +103,11 @@ class Watcher:
         self.notifier = notifier or NullNotifier()
         self.state = State(config.general.state_file)
 
+    def message_lang(self) -> str:
+        """Notifications follow the owner's chat language (see TelegramConfig.lang)."""
+        chat_id = self.config.telegram.chat_id
+        return self.config.telegram.resolve_lang(self.state.chat_lang(chat_id))
+
     # -- one pass --------------------------------------------------------- #
 
     def tick(self, providers: list[Provider], *, dry_run: bool = False) -> list[TickResult]:
@@ -119,7 +124,7 @@ class Watcher:
                 self.state.update(provider.name, status=ERROR, last_error=str(exc), last_error_at=now)
                 if not self.state.already_notified(provider.name, ERROR, ERROR):
                     self.state.mark_notified(provider.name, ERROR, ERROR)
-                    events.append((ERROR, message_error(provider.title, str(exc))))
+                    events.append((ERROR, message_error(provider.title, str(exc), self.message_lang())))
                 results.append(TickResult(provider.name, None, str(exc), None, None, events))
                 self.state.save()
                 for event, text in events:
@@ -130,7 +135,7 @@ class Watcher:
                 notified = dict(entry.get("notified") or {})
                 notified["error"] = None  # a future failure should be reported again
                 entry["notified"] = notified
-                events.append((RECOVERED, message_recovered(provider.title)))
+                events.append((RECOVERED, message_recovered(provider.title, self.message_lang())))
 
             decision = decide(usage, self.config.general, entry, now)
             ping_result: PingResult | None = None
@@ -149,6 +154,7 @@ class Watcher:
                                 usage.weekly.pct,
                                 usage.weekly.reset_at,
                                 now,
+                                self.message_lang(),
                             ),
                         )
                     )
@@ -191,6 +197,7 @@ class Watcher:
                                 ping_result.seconds,
                                 decision.reason,
                                 reset_at=probe_reset,
+                                lang=self.message_lang(),
                             ),
                         )
                     )
@@ -202,7 +209,7 @@ class Watcher:
                         last_error_at=now,
                         last_ping_result={"ok": False, "error": ping_result.error},
                     )
-                    events.append((ERROR, message_ping_failed(provider.title, ping_result.error)))
+                    events.append((ERROR, message_ping_failed(provider.title, ping_result.error, self.message_lang())))
 
             self.state.update(
                 provider.name,

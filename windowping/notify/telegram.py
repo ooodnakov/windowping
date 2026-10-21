@@ -134,9 +134,14 @@ class TelegramPoller:
                 text = (message.get("text") or "").strip()
                 if not chat_id or not text or not self.allowed(int(chat_id)):
                     continue
+                # Telegram reports the UI language of the sender; "auto" mode uses it.
+                sender_lang = (message.get("from") or {}).get("language_code")
+                lang = self.cfg.resolve_lang(sender_lang)
                 try:
-                    answer = self.on_message(text)
+                    answer = self.on_message(text, sender_lang)
                 except Exception as exc:  # noqa: BLE001 - one bad command must not stop the bot
-                    answer = f"ошибка: {exc}"
+                    from ..i18n import t
+
+                    answer = t(lang, "reply_error", error=exc)
                 if answer:
                     self.reply(int(chat_id), answer)

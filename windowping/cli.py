@@ -141,7 +141,7 @@ def cmd_watch(args) -> int:
 
     stop = threading.Event()
     if notifier.active and config.telegram.poll and not args.no_bot:
-        commands = BotCommands(config)
+        commands = BotCommands(config, watcher)
         poller = TelegramPoller(config.telegram, commands.handle)
         thread = threading.Thread(
             target=poller.poll_forever, kwargs={"stop_event": stop}, daemon=True, name="telegram-bot"
@@ -185,7 +185,8 @@ def cmd_notify_test(args) -> int:
     if chat_id is None:
         print("telegram chat_id is not set", file=sys.stderr)
         return 2
-    text = args.text or message_test(str(config.path), list(config.providers))
+    lang = config.telegram.resolve_lang()
+    text = args.text or message_test(str(config.path), list(config.providers), lang)
     try:
         send_message(notifier.token, int(chat_id), text, silent=False)
     except Exception as exc:  # noqa: BLE001 - CLI feedback

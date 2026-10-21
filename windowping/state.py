@@ -48,6 +48,17 @@ class State:
         notified[event] = key
         entry["notified"] = notified
 
+    # -- chat languages --------------------------------------------------- #
+
+    def chat_lang(self, chat_id: int | None) -> str | None:
+        if chat_id is None:
+            return None
+        return (self.data.get("chats") or {}).get(str(chat_id))
+
+    def set_chat_lang(self, chat_id: int, lang: str) -> None:
+        chats = self.data.setdefault("chats", {})
+        chats[str(chat_id)] = lang
+
 
 def pid_alive(path: Path) -> bool:
     try:

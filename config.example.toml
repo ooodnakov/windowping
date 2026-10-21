@@ -67,4 +67,6 @@ notify_events = ["ping", "error", "weekly"]
 # Answer /status and /ping in the bot. Needs a token that no other process is
 # long-polling (a Hermes gateway token will fight over getUpdates).
 poll = false
+# "auto" follows the sender's Telegram language; "en"/"ru" pin it.
+lang = "auto"
 silent = false

@@ -13,6 +13,7 @@ import html
 import re
 import time
 
+from .i18n import help_text, t
 from .providers.base import Usage
 
 TELEGRAM_TITLE = "windowping"
@@ -136,10 +137,10 @@ def _state_icon(usage: Usage | None, error: str | None, threshold: float = 99.0)
     return "🟢"
 
 
-def _pre_line(label: str, window, now: float) -> str:
+def _pre_line(label: str, window, now: float, lang: str = "en") -> str:
     pad = f"{label:<{_PRE_LABEL}}"
     if not window.enforced:
-        return f"{pad} {'':<{_PRE_BAR}}  нет лимита"
+        return f"{pad} {'':<{_PRE_BAR}}  {t(lang, 'no_limit')}"
     pct = "  ?" if window.pct is None else f"{round(window.pct):>3}%"
     if window.reset_at is None:
         reset = "       —"
@@ -148,29 +149,32 @@ def _pre_line(label: str, window, now: float) -> str:
     return f"{pad} {bar_bare(window.pct, _PRE_BAR)} {pct}  {reset}"
 
 
-_DETAIL_RULES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"^(\d+) reset credit\(s\) available$"), r"\1 сброс(а) в запасе"),
-    (re.compile(r"^\$([\d.]+) monthly credits left$"), r"на месяц осталось $\1"),
-    (re.compile(r"^no usage windows on this plan$"), "на плане нет окон"),
-]
+_DETAIL_RULES: dict[str, list[tuple[re.Pattern[str], str]]] = {
+    "ru": [
+        (re.compile(r"^(?P<count>\d+) reset credit\(s\) available$"), "{count} сброс(а) в запасе"),
+        (re.compile(r"^\$(?P<amount>[\d.]+) monthly credits left$"), "на месяц осталось ${amount}"),
+        (re.compile(r"^no usage windows on this plan$"), "на плане нет окон"),
+    ],
+}
 
 
-def _human_detail(text: str) -> str:
-    for pattern, template in _DETAIL_RULES:
+def _human_detail(text: str, lang: str = "en") -> str:
+    """Provider details are English; Russian users get the known lines translated."""
+    for pattern, template in _DETAIL_RULES.get(lang, []):
         match = pattern.match(text)
         if match:
-            return match.expand(template)
+            return template.format(**match.groupdict())
     return text
 
 
-def _compact_details(usage: Usage, limit: int = 2) -> list[str]:
+def _compact_details(usage: Usage, lang: str = "en", limit: int = 2) -> list[str]:
     """Keep only short, non-duplicating extras (balances, credits)."""
     picked: list[str] = []
     for line in usage.details:
         text = line.strip()
         if not text or text.startswith(("5h ", "weekly ", "5h credits", "weekly credits")):
             continue
-        picked.append(esc(_human_detail(text)))
+        picked.append(esc(_human_detail(text, lang)))
         if len(picked) >= limit:
             break
     return picked
@@ -182,6 +186,7 @@ def telegram_status(
     *,
     header: str | None = None,
     threshold: float = 99.0,
+    lang: str = "en",
 ) -> str:
     """Compact monospace dashboard for one or more providers."""
     now = now if now is not None else time.time()
@@ -192,15 +197,19 @@ def telegram_status(
         if usage is not None and usage.plan:
             title += f" · <i>{esc(usage.plan)}</i>"
         if error:
-            blocks.append(f"{icon} {title}\n<pre>error: {esc(error)[:300]}</pre>")
+            label = t(lang, "error_label")
+            blocks.append(f"{icon} {title}\n<pre>{label}: {esc(error)[:300]}</pre>")
             continue
         if usage is None:
             continue
         pre = "\n".join(
-            [_pre_line("5h", usage.five, now), _pre_line("weekly", usage.weekly, now)]
+            [
+                _pre_line("5h", usage.five, now, lang),
+                _pre_line("weekly", usage.weekly, now, lang),
+            ]
         )
         block = f"{icon} {title}\n<pre>{pre}</pre>"
-        details = _compact_details(usage)
+        details = _compact_details(usage, lang)
         if details:
             block += "\n" + " · ".join(details)
         blocks.append(block)
@@ -217,6 +226,7 @@ def message_ping(
     seconds: float | None,
     reason: str | None = None,
     reset_at: float | None = None,
+    lang: str = "en",
 ) -> str:
     stats = []
     if model:
@@ -225,70 +235,64 @@ def message_ping(
         stats.append(fmt_tokens(tokens))
     if seconds:
         stats.append(f"{seconds:.1f}s")
-    text = f"✅ <b>{esc(title)}</b> — новое окно"
+    text = f"✅ <b>{esc(title)}</b> — {t(lang, 'ping_ok')}"
     if stats:
         text += "\n" + " · ".join(stats)
     if reset_at:
-        text += f"\n<i>5h-окно до {fmt_hm(reset_at)}</i>"
+        text += "\n<i>" + esc(t(lang, "window_until", time=fmt_hm(reset_at))) + "</i>"
     elif reason:
         text += f"\n<i>{esc(reason)}</i>"
     return text
 
 
-def message_ping_failed(title: str, error: str | None) -> str:
-    return f"⚠️ <b>{esc(title)}</b> — пинг не прошёл\n<pre>{esc(error)[:400]}</pre>"
-
-
-def message_weekly(
-    title: str, pct: float | None, reset_ts: float | None, now: float | None = None
-) -> str:
-    now = now if now is not None else time.time()
-    left = f" · сброс через {fmt_delta(reset_ts - now)}" if reset_ts else ""
-    pct_text = f"{pct:.0f}%" if pct is not None else "100%"
+def message_ping_failed(title: str, error: str | None, lang: str = "en") -> str:
     return (
-        f"⛔️ <b>{esc(title)}</b> — недельный лимит выбран\n"
-        f"{pct_text}{left}\n"
-        "Пинги ждут сброса."
+        f"⚠️ <b>{esc(title)}</b> — {t(lang, 'ping_failed')}\n"
+        f"<pre>{esc(error)[:400]}</pre>"
     )
 
 
-def message_error(title: str, error: str | None) -> str:
-    return f"⚠️ <b>{esc(title)}</b> — ошибка чтения лимитов\n<pre>{esc(error)[:400]}</pre>"
-
-
-def message_recovered(title: str) -> str:
-    return f"♻️ <b>{esc(title)}</b> — снова на связи"
-
-
-def message_test(config_path: str, providers: list[str]) -> str:
+def message_weekly(
+    title: str,
+    pct: float | None,
+    reset_ts: float | None,
+    now: float | None = None,
+    lang: str = "en",
+) -> str:
+    now = now if now is not None else time.time()
+    left = t(lang, "weekly_resets", delta=fmt_delta(reset_ts - now)) if reset_ts else ""
+    pct_text = f"{pct:.0f}%" if pct is not None else "100%"
     return (
-        f"👋 <b>{TELEGRAM_TITLE}</b> на связи\n"
+        f"⛔️ <b>{esc(title)}</b> — {t(lang, 'weekly_reached')}\n"
+        f"{pct_text}{esc(left)}\n"
+        f"{t(lang, 'weekly_wait')}"
+    )
+
+
+def message_error(title: str, error: str | None, lang: str = "en") -> str:
+    return (
+        f"⚠️ <b>{esc(title)}</b> — {t(lang, 'usage_error')}\n"
+        f"<pre>{esc(error)[:400]}</pre>"
+    )
+
+
+def message_recovered(title: str, lang: str = "en") -> str:
+    return f"♻️ <b>{esc(title)}</b> — {t(lang, 'recovered')}"
+
+
+def message_test(config_path: str, providers: list[str], lang: str = "en") -> str:
+    return (
+        f"👋 <b>{TELEGRAM_TITLE}</b> {t(lang, 'test_ok')}\n"
         f"<pre>config    {esc(config_path)}\n"
         f"providers {esc(', '.join(providers) or '—')}</pre>"
     )
 
 
-HELP_HTML = f"""<b>{TELEGRAM_TITLE}</b>
-<i>держит 5-часовые окна лимитов склеенными</i>
+HELP_HTML = help_text("en")
 
-<b>Команды</b>
-/status — все провайдеры
-/status glm — только GLM
-/ping — пнуть всё сейчас
-/ping codex — пнуть один
-/help — это сообщение
 
-<b>Как это работает</b>
-После сброса окна отправляется один минимальный запрос, чтобы новое окно
-началось сразу. Когда недельный лимит выбран, пинги ждут сброса.
-
-<b>Обозначения</b>
-<pre>5h      ███████░░░  69%  3h32m
-weekly  ███░░░░░░░  30%  6d7h
-
-🟢 всё ок    🟠 неделя выбрана
-🔴 ошибка    ⚪️ нет данных</pre>
-Последняя колонка — сколько осталось до сброса."""
+def help_html(lang: str | None = "en") -> str:
+    return help_text(lang, TELEGRAM_TITLE)
 
 
 def strip_tags(text: str) -> str:

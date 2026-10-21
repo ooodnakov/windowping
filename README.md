@@ -13,7 +13,7 @@ through the provider's own endpoint right after rollover, so the next window
 starts immediately.
 
 ```
-✓ Codex: окно открыто (6.9s, 11971 tokens)
+✓ Codex: window opened (1.9s, 16 tokens)
 gpt-5.6-luna · 5h window reset at Wed 19:52 MSK
 ```
 
@@ -162,6 +162,7 @@ bot_token = ""               # or bot_token_env = "WINDOWPING_BOT_TOKEN"
 chat_id = 0
 notify_events = ["ping", "error", "weekly"]
 poll = false                 # answer /status and /ping in the bot
+lang = "auto"                # "auto" (follow the sender) | "en" | "ru"
 ```
 
 Paths (`auth_file`, `models_cache`, `env_file`, `state_file`) all have sensible
@@ -179,10 +180,25 @@ Two independent pieces, both optional:
    to `allow_chat_ids` (defaults to `chat_id`). Bare words work too: `status`,
    `ping`.
 
+The bot speaks **English and Russian**. `[telegram] lang = "auto"` (default)
+follows the sender's Telegram `language_code`, so the same deployment answers a
+Russian client in Russian and an English one in English; `"en"` or `"ru"` pins
+everything. Notifications follow the owner's last seen language. The rest of the
+project — CLI output, docs, code — is English only.
+
 Replies are Telegram HTML: provider names in bold, meters in a monospace
 `<pre>` block, status icons per provider (🟢 ok, 🟠 weekly exhausted, 🔴 error,
 ⚪️ no data). If Telegram rejects an entity, the message is re-sent as plain text
 instead of being dropped:
+
+```
+🟢 codex · plus
+5h      █████████░  92%    2h44m
+weekly  ███░░░░░░░  33%     6d6h
+3 reset credit(s) available
+```
+
+The same block for a client whose Telegram language is Russian:
 
 ```
 🟢 codex · plus
@@ -194,9 +210,9 @@ weekly  ███░░░░░░░  33%     6d6h
 Notifications look like:
 
 ```
-✅ Codex — новое окно
+✅ Codex — new window
 gpt-5.6-luna · 12.0k tok · 6.9s
-5h-окно до 21:45
+5h window until 21:45
 ```
 
 > A token that another process is already long-polling cannot be shared: a
@@ -242,43 +258,10 @@ For every provider, every tick:
 python3 -m unittest discover -s tests -v
 ```
 
-58 unit tests cover window parsing for all three providers, the decision
+64 unit tests cover window parsing for all three providers, the decision
 algorithm, the watcher's notification/state behaviour, the systemd unit
 renderer, the Telegram HTML formatting, and the Codex API ping path (SSE
 parsing, mode dispatch, CLI fallback). No network needed.
-
-## Releasing to PyPI
-
-The name `windowping` is free on PyPI. One-time setup:
-
-1. Create an account on <https://pypi.org> and enable 2FA.
-2. Create an API token (Account settings → API tokens) scoped to the project
-   once it exists, or to "entire account" for the first upload.
-3. Store it outside the repo, e.g. `~/.pypirc` with mode 600:
-
-   ```ini
-   [pypi]
-   username = __token__
-   password = pypi-AgEIcHlwaS5vcmc…
-   ```
-
-Then each release:
-
-```sh
-python3 -m pip install --user build twine
-python3 -m build                    # dist/windowping-0.1.0-py3-none-any.whl + .tar.gz
-python3 -m twine check dist/*
-python3 -m twine upload dist/*
-```
-
-Bump `version` in `pyproject.toml` before every upload — PyPI rejects a version
-it has already seen. Test the upload against TestPyPI first with
-`--repository testpypi` after adding that section to `~/.pypirc`.
-
-**Trusted publishing (no tokens):** on PyPI → Publishing, add a GitHub Actions
-publisher for `ooodnakov/windowping` with workflow `publish.yml` and environment
-`pypi`; the workflow then uploads via OIDC on every `v*` tag. That needs the
-repository to be public for other people, but a private repo can still publish.
 
 ## License
 
