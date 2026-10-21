@@ -101,10 +101,35 @@ Claude Code (Pro / Max) is opt-in: set `[providers.claude] enabled = true`.
   one with `ping_dir`.
 - The ping needs a POSIX pty (Linux / macOS); `status` works everywhere.
 
+### Claude API ping (opt-in)
+
+`ping_mode = "api"` skips the pty and posts one message instead:
+
+```
+POST https://api.anthropic.com/v1/messages
+Authorization: Bearer <oauth token>      anthropic-beta: oauth-2025-04-20
+anthropic-version: 2023-06-01            User-Agent: claude-code/<version>
+
+{"model": "claude-haiku-4-5", "max_tokens": 1, "messages": [{"role": "user", "content": "ok"}]}
+```
+
+This is the shape of Claude Code's own startup prefetch — a single turn, a single
+output token, a fraction of a cent. The response carries
+`anthropic-ratelimit-unified-5h-{utilization,reset}`, so one ping also returns the
+fresh meter reading and the new reset time.
+
+> **Unverified:** whether a raw `/v1/messages` call on the subscription OAuth
+> token anchors a new 5h window has not been measured on a live account. The
+> default stays `cli` for that reason; with `ping_fallback = true` a failing API
+> ping retries through the CLI, so windows keep chaining either way. If you want
+> to test it: set `ping_mode = "api"`, wait for a reset, and compare
+> `five_hour.resets_at` in `windowping status` before and after.
+
 > **Heads-up:** `/api/oauth/usage` is an internal endpoint, not a public API,
 > and Anthropic's terms reserve subscription OAuth tokens for Claude Code and
 > Claude.ai. windowping uses the token only to read the meter (and refresh it on
-> a 401), and the billable ping always goes through the official CLI. Still,
+> a 401); the default billable ping goes through the official CLI. The opt-in
+> `ping_mode = "api"` is the one place a raw request is sent with that token —
 > decide for yourself whether that is acceptable for your account.
 
 Ported from [wavever/CCLimitPing](https://github.com/wavever/CCLimitPing) (MIT).
@@ -195,6 +220,8 @@ api_key_env = "GLM_API_KEY"  # falls back to api_key = "..."
 enabled = false              # opt-in, see "Claude ping"
 model = "haiku"
 prompt = "ok"
+ping_mode = "cli"            # "cli" = one interactive turn | "api" = one 1-token message
+ping_fallback = true         # api mode: retry through the CLI if it fails
 read_interval = "5m"         # reuse a usage read: the endpoint throttles
 # ping_dir = "~/Projects/x"  # a folder Claude Code trusts
 

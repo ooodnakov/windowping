@@ -62,6 +62,12 @@ env_file = "~/.hermes/.env"
 enabled = false
 model = "haiku"
 prompt = "ok"
+# How the ping starts a window: "cli" drives one interactive Claude Code turn
+# (always counts against the plan), "api" posts a single 1-token /v1/messages
+# with the same OAuth token (cheap, but unproven against a live subscription).
+ping_mode = "cli"
+ping_fallback = true         # api mode: retry through the CLI if it fails
+# api_model = "claude-haiku-4-5"
 # The usage endpoint throttles hard; the watcher reuses a read this long,
 # unless one of its resets has passed meanwhile.
 read_interval = "5m"

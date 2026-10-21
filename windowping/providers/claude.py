@@ -32,10 +32,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import ProviderConfig
-from ..http import HttpError, request_json
+from ..http import HttpError, request_json, request_json_response
 from .base import PingResult, Usage, Window
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+API_VERSION = "2023-06-01"
+# An API-key style ping has to name a model; haiku is the cheapest one.
+DEFAULT_API_MODEL = "claude-haiku-4-5"
 # Claude Code refreshes against platform.claude.com since 2.1.2xx.
 OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -133,6 +137,44 @@ def _parse_ts(value) -> float | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.timestamp()
+
+
+def api_ping_payload(model: str, prompt: str) -> dict:
+    """The smallest billable message: one user turn, one output token.
+
+    Anthropic's own CLI sends exactly this shape as its startup prefetch
+    (``max_tokens: 1``, content ``"quota"``), so it is the closest thing to a
+    supported "touch the meter" request.
+    """
+    return {
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+
+
+def api_ping_headers(token: str, version: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "anthropic-beta": OAUTH_BETA,
+        "anthropic-version": API_VERSION,
+        "Content-Type": "application/json",
+        "User-Agent": f"claude-code/{version}",
+        "Accept": "application/json",
+    }
+
+
+def limits_from_headers(headers: dict[str, str]) -> tuple[float | None, float | None]:
+    """``(5h utilization %, 5h reset epoch)`` from ``anthropic-ratelimit-unified-*``.
+
+    These headers ride on every ``/v1/messages`` response, so a ping doubles as a
+    fresh measurement — no second call to the usage endpoint.
+    """
+    util = headers.get("anthropic-ratelimit-unified-5h-utilization")
+    reset = headers.get("anthropic-ratelimit-unified-5h-reset")
+    pct = float(util) if util not in (None, "") else None
+    ts = float(reset) if reset not in (None, "") else None
+    return pct, ts
 
 
 def _window(block) -> Window:
@@ -556,6 +598,13 @@ class ClaudeProvider:
         self.auth_file = cfg.get("auth_file")
         self.ping_dir = cfg.get("ping_dir")
         self.extra_args = [str(arg) for arg in (cfg.get("extra_args") or [])]
+        # "cli" drives an interactive Claude Code turn (guaranteed to count);
+        # "api" posts one 1-token /v1/messages with the same OAuth token.
+        mode = str(cfg.get("ping_mode") or "cli").strip().lower()
+        self.ping_mode = mode if mode in ("cli", "api") else "cli"
+        self.ping_fallback = cfg.flag("ping_fallback", True)
+        self.api_model = str(cfg.get("api_model") or DEFAULT_API_MODEL)
+        self.messages_url = str(cfg.get("messages_url") or MESSAGES_URL)
         # The usage endpoint throttles hard (429); the watcher ticks every
         # minute, so reads are cached unless a cached reset has passed.
         self.read_interval = cfg.num("read_interval", 300.0)
@@ -795,6 +844,89 @@ class ClaudeProvider:
         return pick_ping_dir(self.workdir, trusted_dirs(global_config_path()), can_borrow)
 
     def ping(self) -> PingResult:
+        """Start a window: over the CLI by default, or one API message."""
+        if self.ping_mode != "api":
+            return self._cli_ping()
+        self._cache = None
+        result = self._api_ping()
+        if result.ok or not self.ping_fallback:
+            return result
+        fallback = self._cli_ping()
+        if fallback.ok:
+            fallback.detail = f"api ping failed ({result.error}); fell back to the CLI"
+            return fallback
+        fallback.error = f"api: {result.error} | cli: {fallback.error}"
+        return fallback
+
+    def _api_ping(self) -> PingResult:
+        """One 1-token message on the same OAuth token Claude Code uses.
+
+        Unverified against a live subscription: the CLI's own startup prefetch
+        has this shape, but whether a raw call anchors a fresh 5h window is not
+        proven. `resets_at` from the response headers tells you afterwards.
+        """
+        model = self.api_model
+        started = time.monotonic()
+        token = self.token()
+        try:
+            payload, headers = request_json_response(
+                self.messages_url,
+                method="POST",
+                headers=api_ping_headers(token, self.version()),
+                body=api_ping_payload(model, self.prompt),
+                timeout=self.timeout,
+            )
+        except HttpError as exc:
+            if exc.status == 401:
+                try:
+                    payload, headers = request_json_response(
+                        self.messages_url,
+                        method="POST",
+                        headers=api_ping_headers(self.refresh(), self.version()),
+                        body=api_ping_payload(model, self.prompt),
+                        timeout=self.timeout,
+                    )
+                except (HttpError, RuntimeError) as retry_exc:
+                    return PingResult(
+                        ok=False,
+                        error=f"{retry_exc}",
+                        model=model,
+                        seconds=time.monotonic() - started,
+                    )
+            else:
+                return PingResult(
+                    ok=False,
+                    error=str(exc),
+                    model=model,
+                    seconds=time.monotonic() - started,
+                )
+        except (RuntimeError, OSError) as exc:
+            return PingResult(ok=False, error=str(exc), model=model)
+
+        elapsed = time.monotonic() - started
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        tokens = None
+        if isinstance(usage, dict):
+            counted = [usage.get(k) for k in ("input_tokens", "output_tokens")]
+            counted = [v for v in counted if isinstance(v, int)]
+            tokens = sum(counted) or None
+        pct, reset_at = limits_from_headers(headers)
+        bits = []
+        if pct is not None:
+            bits.append(f"5h {pct:.0f}%")
+        if reset_at is not None:
+            bits.append(
+                "resets " + dt.datetime.fromtimestamp(reset_at).astimezone().strftime("%a %H:%M %Z")
+            )
+        return PingResult(
+            ok=True,
+            seconds=elapsed,
+            model=str(payload.get("model") or model) if isinstance(payload, dict) else model,
+            tokens=tokens,
+            detail=" · ".join(bits) or None,
+        )
+
+    def _cli_ping(self) -> PingResult:
         """Start a window with one interactive turn, then prove it from the transcript."""
         self._cache = None  # whatever happens next, the next read must be fresh
         model = self.model or None
