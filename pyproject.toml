@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "windowping"
+version = "0.1.0"
+description = "Keep Codex, Command Code and GLM Coding Plan 5h rate-limit windows back-to-back by pinging each provider the moment its window resets."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Aleksandr Odnakov", email = "coolkasodnakov@gmail.com" }]
+keywords = ["rate-limit", "codex", "glm", "command-code", "claude", "quota"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+dependencies = []
+
+[project.scripts]
+windowping = "windowping.cli:main"
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+include = ["windowping*"]

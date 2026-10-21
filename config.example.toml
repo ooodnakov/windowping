@@ -1,0 +1,64 @@
+# windowping — keep 5h rate-limit windows back-to-back.
+# One file for everything: scheduling, providers, Telegram.
+
+[general]
+# Stop pinging a provider once its weekly meter is at/above this fraction.
+weekly_threshold = 0.99
+# Wait this long after a window's reset before pinging (rollover safety).
+reset_buffer = "5m"
+# Never re-ping the same provider within this window.
+cooldown = "10m"
+# After a ping that has not shown up in the usage meter yet, wait this long.
+register_grace = "30m"
+# How often the watcher loop wakes up.
+tick_interval = "60s"
+# Wall clock budget for one provider ping.
+ping_timeout = "180s"
+# Directory the Codex ping runs in.
+workdir = "~"
+
+# Paths are optional; these are the defaults.
+# state_file = "~/.local/state/windowping/state.json"
+
+[providers.codex]
+enabled = true
+# "" = pick the cheapest model the Codex catalog offers at ping time.
+model = ""
+effort = "low"
+prompt = "ok"
+# bin = "codex"
+# auth_file = "~/.codex/auth.json"
+# config_file = "~/.codex/config.toml"
+# models_cache = "~/.codex/models_cache.json"
+
+[providers.commandcode]
+enabled = true
+model = "deepseek/deepseek-v4.1-flash"
+prompt = "ok"
+base_url = "https://api.commandcode.ai"
+# auth_file = "~/.commandcode/auth.json"
+
+[providers.glm]
+enabled = true
+# Coding-plan tier model: legacy models (glm-4.5-flash) are served outside the
+# plan and never start a 5h window.
+model = "glm-5.3-flash"
+prompt = "ok"
+base_url = "https://api.z.ai/api/coding/paas/v4"
+usage_url = "https://api.z.ai/api/monitor/usage/quota/limit"
+# api_key = ""
+api_key_env = "GLM_API_KEY"
+env_file = "~/.hermes/.env"
+
+[telegram]
+enabled = false
+# Prefer bot_token_env over pasting the token here.
+bot_token = ""
+bot_token_env = "WINDOWPING_BOT_TOKEN"
+chat_id = 0
+# Which transitions are worth a message: ping, error, weekly.
+notify_events = ["ping", "error", "weekly"]
+# Answer /status and /ping in the bot. Needs a token that no other process is
+# long-polling (a Hermes gateway token will fight over getUpdates).
+poll = false
+silent = false
