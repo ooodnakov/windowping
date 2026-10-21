@@ -1,9 +1,9 @@
 # windowping
 
-Keep your **Codex**, **Command Code** and **GLM Coding Plan** 5-hour rate-limit
-windows back-to-back.
+Keep your **Codex**, **Command Code**, **GLM Coding Plan** and **Claude Code**
+5-hour rate-limit windows back-to-back.
 
-All three providers run on rolling 5h windows (plus a weekly cap). A fresh 5h
+All four providers run on rolling 5h windows (plus a weekly cap). A fresh 5h
 window does **not** start when the previous one resets — it starts when you send
 the first billable request. If that happens three hours later, those three hours
 are wasted and your schedule drifts for the rest of the day.
@@ -24,7 +24,7 @@ Pure Python 3.11+, standard library only, no dependencies, no telemetry.
 | Job | Mechanism | Cost |
 |-----|-----------|------|
 | Read usage & reset time | each provider's own usage endpoint (zero quota) | free, never starts a window |
-| Start the next window | one minimal billable request (`max_tokens=1`, or `codex exec --ephemeral`) | a sliver of quota — the whole point |
+| Start the next window | one minimal billable request (`max_tokens=1`, `codex exec --ephemeral`, or one interactive Claude Code turn) | a sliver of quota — the whole point |
 
 Safety rails, all configurable:
 
@@ -45,6 +45,7 @@ Safety rails, all configurable:
 | **Codex** | `GET chatgpt.com/backend-api/wham/usage` | `POST …/backend-api/codex/responses` (api mode, ~16 tokens) or `codex exec --ephemeral --json` (cli mode) | OAuth in `~/.codex/auth.json` |
 | **Command Code** | `GET api.commandcode.ai/alpha/billing/credits` | `POST …/provider/v1/chat/completions` | API key in `~/.commandcode/auth.json` |
 | **GLM Coding Plan** | `GET api.z.ai/api/monitor/usage/quota/limit` | `POST api.z.ai/api/coding/paas/v4/chat/completions` | `GLM_API_KEY` |
+| **Claude Code** | `GET api.anthropic.com/api/oauth/usage` | one interactive `claude` turn on a pty (see [Claude ping](#claude-ping)) | Claude Code login (Keychain / `~/.claude/.credentials.json`) |
 
 The Codex OAuth token is refreshed automatically through the same client the
 Codex CLI uses, and rotated tokens are written back to `~/.codex/auth.json`, so
@@ -73,6 +74,40 @@ retrying through `codex exec` if the raw request fails. Measured on
 > Requests below `max_output_tokens = 16` are rejected outright
 > (`integer_below_min_value`), and the meter is an integer percentage, so a
 > 16-token ping will not visibly move it.
+
+### Claude ping
+
+Claude Code (Pro / Max) is opt-in: set `[providers.claude] enabled = true`.
+
+- **Usage** is a read-only `GET /api/oauth/usage` with the Claude Code login
+  (the macOS Keychain item `Claude Code-credentials`, else
+  `~/.claude/.credentials.json`; `$CLAUDE_CONFIG_DIR` is honoured). On a 401 the
+  store is re-read first, since the CLI may have refreshed it, and only then is
+  the token refreshed through Claude Code's own OAuth client and written back.
+  The endpoint throttles hard, so a read is reused for `read_interval` (default
+  5m) unless one of its resets has passed, and a 429 falls back to that read.
+- **Ping** is one *interactive* `claude --model haiku -- ok` turn on a
+  pseudo-terminal. Print mode (`claude -p`) is billed to Agent SDK / API
+  credits, not the subscription, so it never starts a window. The session runs
+  under its own `--session-id`, with hooks and prompt suggestions off
+  (`--settings`), no MCP servers (`--strict-mcp-config`), no tools
+  (`--tools ""`), no CLAUDE.md and no prompt-history entry, each flag only when
+  the installed CLI lists it. Its transcript is read to prove that a real reply
+  came back (model and tokens, or Claude Code's own error), then deleted, so
+  pings never pile up in `claude --resume`.
+- **Folder:** Claude Code asks whether to trust an unknown folder, and a ping
+  cannot answer. So it runs in `workdir` only when Claude Code trusts it, and
+  otherwise borrows a trusted folder that has no `.claude/settings*.json`. Pin
+  one with `ping_dir`.
+- The ping needs a POSIX pty (Linux / macOS); `status` works everywhere.
+
+> **Heads-up:** `/api/oauth/usage` is an internal endpoint, not a public API,
+> and Anthropic's terms reserve subscription OAuth tokens for Claude Code and
+> Claude.ai. windowping uses the token only to read the meter (and refresh it on
+> a 401), and the billable ping always goes through the official CLI. Still,
+> decide for yourself whether that is acceptable for your account.
+
+Ported from [wavever/CCLimitPing](https://github.com/wavever/CCLimitPing) (MIT).
 
 ## Install
 
@@ -135,7 +170,7 @@ cooldown = "10m"             # minimum gap between pings per provider
 register_grace = "30m"       # wait for a ping to appear in the usage meter
 tick_interval = "60s"        # watcher wake-up interval
 ping_timeout = "180s"
-workdir = "~"                # cwd for the codex exec ping
+workdir = "~"                # cwd for the codex and claude pings
 
 [providers.codex]
 enabled = true
@@ -155,6 +190,13 @@ enabled = true
 model = "glm-5.3-flash"
 prompt = "ok"
 api_key_env = "GLM_API_KEY"  # falls back to api_key = "..."
+
+[providers.claude]
+enabled = false              # opt-in, see "Claude ping"
+model = "haiku"
+prompt = "ok"
+read_interval = "5m"         # reuse a usage read: the endpoint throttles
+# ping_dir = "~/Projects/x"  # a folder Claude Code trusts
 
 [telegram]
 enabled = false
@@ -258,10 +300,13 @@ For every provider, every tick:
 python3 -m unittest discover -s tests -v
 ```
 
-64 unit tests cover window parsing for all three providers, the decision
+109 unit tests cover window parsing for all four providers, the decision
 algorithm, the watcher's notification/state behaviour, the systemd unit
-renderer, the Telegram HTML formatting, and the Codex API ping path (SSE
-parsing, mode dispatch, CLI fallback). No network needed.
+renderer, the Telegram HTML formatting, the Codex API ping path (SSE
+parsing, mode dispatch, CLI fallback), and the Claude provider (token reload
+and refresh, usage cache, isolation flags, ping folder, transcript proof). The
+interactive Claude ping runs against a fake `claude` on a real pty and is
+skipped where there is none. No network needed.
 
 ## License
 

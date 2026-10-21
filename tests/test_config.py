@@ -41,9 +41,13 @@ class LoadTest(unittest.TestCase):
             self.assertEqual(config.general.tick_interval, 60)
             self.assertAlmostEqual(config.general.weekly_threshold, 0.99)
             self.assertEqual(
-                sorted(config.providers), ["codex", "commandcode", "glm"]
+                sorted(config.providers), ["claude", "codex", "commandcode", "glm"]
             )
-            self.assertTrue(all(p.enabled for p in config.providers.values()))
+            # Claude is opt-in: its ping opens an interactive Claude Code session.
+            self.assertFalse(config.providers["claude"].enabled)
+            self.assertTrue(
+                all(p.enabled for name, p in config.providers.items() if name != "claude")
+            )
             self.assertFalse(config.telegram.active)
 
     def test_overrides(self):

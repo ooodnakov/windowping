@@ -1,5 +1,5 @@
 [Unit]
-Description=windowping — keeps Codex / Command Code / GLM 5h rate-limit windows chained
+Description=windowping — keeps Codex / Command Code / GLM / Claude Code 5h rate-limit windows chained
 Documentation=https://github.com/ooodnakov/windowping
 After=network-online.target
 Wants=network-online.target

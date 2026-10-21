@@ -225,7 +225,7 @@ def cmd_config(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="windowping",
-        description="Keep Codex, Command Code and GLM 5h rate-limit windows back-to-back.",
+        description="Keep Codex, Command Code, GLM and Claude Code 5h rate-limit windows back-to-back.",
     )
     parser.add_argument("--config", help="path to config.toml (default ~/.config/windowping/config.toml)")
     parser.add_argument("--version", action="version", version=f"windowping {__version__}")

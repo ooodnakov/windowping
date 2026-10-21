@@ -136,6 +136,14 @@ class RussianTest(unittest.TestCase):
         )
         self.assertIn("на месяц осталось $46.27", text)
 
+    def test_claude_scoped_detail_ru(self):
+        text = telegram_status(
+            [("claude", usage(provider="claude", details=["Opus weekly 67%"]), None)],
+            NOW,
+            lang="ru",
+        )
+        self.assertIn("Opus — неделя 67%", text)
+
 
 class MessageTest(unittest.TestCase):
     def test_ping(self):

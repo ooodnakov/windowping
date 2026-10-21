@@ -16,6 +16,9 @@ from .render import esc, help_html, message_ping, message_ping_failed, telegram_
 from .watcher import Watcher
 
 PROVIDER_ALIASES = {
+    "anthropic": "claude",
+    "claude": "claude",
+    "claude-code": "claude",
     "cc": "commandcode",
     "command": "commandcode",
     "command-code": "commandcode",

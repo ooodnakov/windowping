@@ -54,6 +54,7 @@ class Provider(Protocol):
 
 
 PROVIDER_TITLES = {
+    "claude": "Claude Code",
     "codex": "Codex",
     "commandcode": "Command Code",
     "glm": "GLM Coding Plan",
