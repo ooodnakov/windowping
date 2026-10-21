@@ -308,6 +308,14 @@ and refresh, usage cache, isolation flags, ping folder, transcript proof). The
 interactive Claude ping runs against a fake `claude` on a real pty and is
 skipped where there is none. No network needed.
 
+## Adding a provider
+
+A provider needs two things: free usage with a reset timestamp, and a cheap
+request that starts the window. `docs/provider-research.md` records what the
+survey of coding subscriptions found — which plans expose a readable per-user
+usage endpoint, which bill monthly credits and therefore cannot be windowed, and
+what a minimal ping looks like for each candidate (Claude Code, Kimi, MiniMax).
+
 ## License
 
 MIT
