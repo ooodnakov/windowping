@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "windowping"
-version = "0.2.0"
+version = "0.2.1"
 description = "Keep Codex, Command Code, GLM Coding Plan and Claude Code 5-hour rate-limit windows back-to-back by pinging each provider the moment its window resets."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -255,6 +255,19 @@ Russian client in Russian and an English one in English; `"en"` or `"ru"` pins
 everything. Notifications follow the owner's last seen language. The rest of the
 project — CLI output, docs, code — is English only.
 
+**Quiet hours.** Telegram has no server-side schedule, but every message can be
+sent with `disable_notification` — delivered, just silent. Set the ranges in
+local time and the bot stops buzzing inside them (replies included):
+
+```toml
+[telegram]
+quiet_hours = "12:00-08:00"          # wraps midnight
+# quiet_hours = "23:00-07:00,13:00-14:00"   # several ranges
+```
+
+A malformed spec fails at startup instead of silently leaving the phone loud.
+`silent = true` still forces silence around the clock.
+
 Replies are Telegram HTML: provider names in bold, meters in a monospace
 `<pre>` block, status icons per provider (🟢 ok, 🟠 weekly exhausted, 🔴 error,
 ⚪️ no data). If Telegram rejects an entity, the message is re-sent as plain text

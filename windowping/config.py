@@ -99,9 +99,17 @@ class TelegramConfig:
     poll: bool = False
     allow_chat_ids: tuple[int, ...] = ()
     silent: bool = False
+    # Deliver without a notification sound inside these local-time ranges, e.g.
+    # "12:00-08:00" (wraps midnight) or "23:00-07:00,13:00-14:00". Empty = off.
+    quiet_hours: str = ""
     # "auto" follows the sender's Telegram language (notifications use the
     # owner's last seen language); "en"/"ru" pin everything.
     lang: str = "auto"
+
+    def in_quiet_hours(self, now=None) -> bool:
+        from .quiet import in_quiet_hours
+
+        return in_quiet_hours(self.quiet_hours, now)
 
     def resolve_lang(self, sender_lang: str | None = None) -> str:
         from .i18n import normalize
@@ -227,6 +235,9 @@ notify_events = ["ping", "error", "weekly"]
 # long-polling (a Hermes gateway token will fight over getUpdates).
 poll = false
 silent = false
+# Deliver messages silently (no sound, no banner) inside these local-time
+# ranges. "12:00-08:00" wraps midnight; comma-separate several ranges.
+quiet_hours = ""
 """
 
 
@@ -285,6 +296,11 @@ def load(path: Path | None = None) -> Config:
         poll=_bool(tg_raw.get("poll"), False),
         allow_chat_ids=allow_ids,
         silent=_bool(tg_raw.get("silent"), False),
+        quiet_hours=str(tg_raw.get("quiet_hours") or ""),
         lang=str(tg_raw.get("lang") or "auto"),
     )
+    # A malformed quiet-hours spec must fail here, at startup, not mid-notification.
+    from .quiet import parse_ranges
+
+    parse_ranges(telegram.quiet_hours)
     return Config(general=general, providers=providers, telegram=telegram, path=path)

@@ -94,8 +94,10 @@ class TelegramNotifier:
         chat_id = self.cfg.chat_id
         if chat_id is None:
             return
+        # Quiet hours still deliver the message, just without a sound or banner.
+        silent = self.cfg.silent or self.cfg.in_quiet_hours()
         try:
-            send_message(self.token, int(chat_id), text, silent=self.cfg.silent)
+            send_message(self.token, int(chat_id), text, silent=silent)
         except TelegramError as exc:  # pragma: no cover - transport noise
             print(f"telegram notify failed: {exc}", flush=True)
 
@@ -115,7 +117,8 @@ class TelegramPoller:
 
     def reply(self, chat_id: int, text: str) -> None:
         try:
-            send_message(self.token, chat_id, text)
+            # Quiet hours cover replies too: an answer at 3am should not buzz.
+            send_message(self.token, chat_id, text, silent=self.cfg.silent or self.cfg.in_quiet_hours())
         except Exception as exc:  # noqa: BLE001 - transport noise must not kill the loop
             print(f"telegram reply failed: {exc}", flush=True)
 

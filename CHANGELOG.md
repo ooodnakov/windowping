@@ -4,6 +4,24 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semantic](https://semver.org/).
 
+## [0.2.1] — 2026-10-22
+
+### Added
+
+- **Quiet hours** for Telegram: `[telegram] quiet_hours = "12:00-08:00"` delivers
+  notifications and replies with `disable_notification`, so the bot never makes a
+  sound inside the configured local-time ranges. Ranges may wrap midnight, several
+  can be comma-separated, and a malformed spec raises at startup instead of
+  quietly leaving the phone loud.
+
+### Fixed
+
+- The polling thread no longer dies when Telegram drops a long-poll connection
+  (`http.client.RemoteDisconnected` escaped the thread, and the bot went silent
+  while the watcher kept pinging). Transport, JSON and per-update failures are now
+  logged and retried with a capped backoff, and the update offset advances before
+  handling so a poisoned message cannot replay forever.
+
 ## [0.2.0] — 2026-10-21
 
 ### Added
