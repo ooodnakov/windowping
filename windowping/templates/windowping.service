@@ -1,0 +1,18 @@
+[Unit]
+Description=windowping — keeps Codex / Command Code / GLM 5h rate-limit windows chained
+Documentation=https://github.com/ooodnakov/windowping
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@WORKDIR@
+@ENVLINES@
+ExecStart=@EXECSTART@
+Restart=on-failure
+RestartSec=30s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

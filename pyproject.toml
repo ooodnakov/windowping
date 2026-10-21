@@ -1,31 +1,65 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "windowping"
 version = "0.1.0"
-description = "Keep Codex, Command Code and GLM Coding Plan 5h rate-limit windows back-to-back by pinging each provider the moment its window resets."
+description = "Keep Codex, Command Code and GLM Coding Plan 5-hour rate-limit windows back-to-back by pinging each provider the moment its window resets."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Aleksandr Odnakov", email = "coolkasodnakov@gmail.com" }]
-keywords = ["rate-limit", "codex", "glm", "command-code", "claude", "quota"]
+maintainers = [{ name = "Aleksandr Odnakov", email = "coolkasodnakov@gmail.com" }]
+keywords = [
+    "rate-limit",
+    "rate-limits",
+    "quota",
+    "5-hour-window",
+    "codex",
+    "chatgpt",
+    "glm",
+    "zai",
+    "command-code",
+    "coding-agent",
+    "cli",
+    "systemd",
+    "telegram",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
 ]
 dependencies = []
+
+[project.optional-dependencies]
+dev = ["build>=1.2", "twine>=5.1"]
 
 [project.scripts]
 windowping = "windowping.cli:main"
 
-[project.optional-dependencies]
-dev = []
+[project.urls]
+Homepage = "https://github.com/ooodnakov/windowping"
+Repository = "https://github.com/ooodnakov/windowping"
+Issues = "https://github.com/ooodnakov/windowping/issues"
+Documentation = "https://github.com/ooodnakov/windowping#readme"
+Changelog = "https://github.com/ooodnakov/windowping/commits/master"
 
 [tool.setuptools.packages.find]
 include = ["windowping*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+windowping = ["templates/*.service"]

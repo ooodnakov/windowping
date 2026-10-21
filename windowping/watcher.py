@@ -10,7 +10,15 @@ from typing import Protocol
 
 from .config import Config, General
 from .providers.base import PingResult, Provider, Usage
-from .render import fmt_delta, fmt_ts
+from .render import (
+    fmt_delta,
+    fmt_ts,
+    message_error,
+    message_ping,
+    message_ping_failed,
+    message_recovered,
+    message_weekly,
+)
 from .state import State
 
 PING = "ping"
@@ -102,14 +110,16 @@ class Watcher:
         results: list[TickResult] = []
         for provider in providers:
             entry = self.state.provider(provider.name)
+            previous_status = entry.get("status")
             events: list[tuple[str, str]] = []
             try:
                 usage = provider.usage()
             except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                self.log(f"[{provider.name}] usage error: {exc}")
                 self.state.update(provider.name, status=ERROR, last_error=str(exc), last_error_at=now)
                 if not self.state.already_notified(provider.name, ERROR, ERROR):
                     self.state.mark_notified(provider.name, ERROR, ERROR)
-                    events.append((ERROR, f"⚠️ {provider.title}: usage read failed\n{exc}"))
+                    events.append((ERROR, message_error(provider.title, str(exc))))
                 results.append(TickResult(provider.name, None, str(exc), None, None, events))
                 self.state.save()
                 for event, text in events:
@@ -120,10 +130,12 @@ class Watcher:
                 notified = dict(entry.get("notified") or {})
                 notified["error"] = None  # a future failure should be reported again
                 entry["notified"] = notified
-                events.append((RECOVERED, f"✅ {provider.title}: связь восстановлена"))
+                events.append((RECOVERED, message_recovered(provider.title)))
 
             decision = decide(usage, self.config.general, entry, now)
             ping_result: PingResult | None = None
+            if decision.action != previous_status and previous_status != ERROR:
+                self.log(f"[{provider.name}] {decision.action}: {decision.reason}")
 
             if decision.action == "skip-weekly":
                 key = f"{usage.weekly.reset_at}"
@@ -132,8 +144,12 @@ class Watcher:
                     events.append(
                         (
                             WEEKLY,
-                            f"⛔ {provider.title}: недельный лимит выбран "
-                            f"({usage.weekly.pct:.0f}%), ждём сброса {fmt_ts(usage.weekly.reset_at)}",
+                            message_weekly(
+                                provider.title,
+                                usage.weekly.pct,
+                                usage.weekly.reset_at,
+                                now,
+                            ),
                         )
                     )
 
@@ -158,21 +174,35 @@ class Watcher:
                     if ping_result.tokens:
                         bits.append(f"{ping_result.tokens} tokens")
                     suffix = f" ({', '.join(bits)})" if bits else ""
+                    self.log(f"[{provider.name}] ✓ pinged{suffix} {ping_result.model or ''}".rstrip())
+                    # A free re-read tells the message when the new window ends.
+                    probe_reset = None
+                    try:
+                        probe_reset = provider.usage().five.reset_at
+                    except Exception:  # noqa: BLE001 - cosmetic only
+                        probe_reset = None
                     events.append(
                         (
                             PING,
-                            f"✓ {provider.title}: окно открыто{suffix}\n"
-                            f"{ping_result.model or 'модель по умолчанию'} · {decision.reason}",
+                            message_ping(
+                                provider.title,
+                                ping_result.model,
+                                ping_result.tokens,
+                                ping_result.seconds,
+                                decision.reason,
+                                reset_at=probe_reset,
+                            ),
                         )
                     )
                 else:
+                    self.log(f"[{provider.name}] ✗ ping failed: {ping_result.error}")
                     self.state.update(
                         provider.name,
                         last_error=ping_result.error,
                         last_error_at=now,
                         last_ping_result={"ok": False, "error": ping_result.error},
                     )
-                    events.append((ERROR, f"✗ {provider.title}: пинг не прошёл\n{ping_result.error}"))
+                    events.append((ERROR, message_ping_failed(provider.title, ping_result.error)))
 
             self.state.update(
                 provider.name,

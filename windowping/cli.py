@@ -12,9 +12,10 @@ from pathlib import Path
 from . import __version__
 from .bot import BotCommands
 from .config import DEFAULT_CONFIG_PATH, load, write_default_config
-from .notify import TelegramNotifier, TelegramPoller
+from .notify import TelegramNotifier, TelegramPoller, send_message
 from .providers import build_one, build_providers
-from .render import status_text, usage_lines
+from .render import message_test, status_text, usage_lines
+from . import service as service_mod
 from .watcher import Watcher
 
 
@@ -180,19 +181,28 @@ def cmd_notify_test(args) -> int:
             file=sys.stderr,
         )
         return 2
-    notifier.cfg.notify_events = ("ping", "error", "weekly", "test")
+    chat_id = config.telegram.chat_id
+    if chat_id is None:
+        print("telegram chat_id is not set", file=sys.stderr)
+        return 2
+    text = args.text or message_test(str(config.path), list(config.providers))
     try:
-        from .notify import send_message
-
-        text = args.text or f"windowping: тест уведомлений\nконфиг: {config.path}\nпровайдеры: {', '.join(config.providers) or '—'}"
-        chat_id = config.telegram.chat_id
-        assert chat_id is not None
         send_message(notifier.token, int(chat_id), text, silent=False)
     except Exception as exc:  # noqa: BLE001 - CLI feedback
         print(f"failed: {exc}", file=sys.stderr)
         return 1
     print("sent")
     return 0
+
+
+def cmd_service(args) -> int:
+    return service_mod.run(
+        args.action,
+        start=not args.no_start,
+        force=args.force,
+        follow=args.follow,
+        lines=args.lines,
+    )
 
 
 def cmd_config(args) -> int:
@@ -246,6 +256,22 @@ def build_parser() -> argparse.ArgumentParser:
     notify_test = subparsers.add_parser("notify-test", help="send one telegram test message")
     notify_test.add_argument("text", nargs="?", help="custom message body")
     notify_test.set_defaults(func=cmd_notify_test)
+
+    service = subparsers.add_parser(
+        "service", aliases=["svc"], help="manage the systemd user unit"
+    )
+    service.add_argument(
+        "action",
+        nargs="?",
+        default="status",
+        choices=list(service_mod.ACTIONS),
+        help="install/uninstall the unit, or control the running service",
+    )
+    service.add_argument("--no-start", action="store_true", help="install: enable without starting")
+    service.add_argument("--force", action="store_true", help="install: rewrite a differing unit")
+    service.add_argument("-f", "--follow", action="store_true", help="logs: follow the journal")
+    service.add_argument("-n", "--lines", type=int, default=50, help="logs: how many lines")
+    service.set_defaults(func=cmd_service)
 
     config = subparsers.add_parser("config", aliases=["c"], help="config file helpers")
     config.add_argument("action", nargs="?", choices=["init", "path", "show"], default="path")

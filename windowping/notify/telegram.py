@@ -38,19 +38,36 @@ def _call(token: str, method: str, payload: dict | None = None, timeout: float =
     return body.get("result") or {}
 
 
-def send_message(token: str, chat_id: int, text: str, *, silent: bool = False) -> bool:
+def send_message(
+    token: str,
+    chat_id: int,
+    text: str,
+    *,
+    silent: bool = False,
+    parse_mode: str | None = "HTML",
+) -> bool:
     text = text[:MAX_MESSAGE]
-    _call(
-        token,
-        "sendMessage",
-        {
+
+    def _send(body_text: str, mode: str | None) -> dict:
+        payload = {
             "chat_id": chat_id,
-            "text": text,
+            "text": body_text,
             "disable_web_page_preview": True,
             "disable_notification": silent,
-        },
-        timeout=20.0,
-    )
+        }
+        if mode:
+            payload["parse_mode"] = mode
+        return _call(token, "sendMessage", payload, timeout=20.0)
+
+    try:
+        _send(text, parse_mode)
+    except TelegramError as exc:
+        # A malformed entity must not swallow the notification: degrade to text.
+        if "entit" not in str(exc).lower() and "parse" not in str(exc).lower():
+            raise
+        from ..render import strip_tags
+
+        _send(strip_tags(text)[:MAX_MESSAGE], None)
     return True
 
 

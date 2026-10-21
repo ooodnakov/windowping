@@ -1,21 +1,26 @@
-"""Telegram command handler: /status, /ping, /help."""
+"""Telegram command handler: /status, /ping, /help.
+
+Replies are Telegram HTML; every dynamic value is escaped in ``render``.
+"""
 
 from __future__ import annotations
 
 import time
 
 from .config import Config
-from .providers import build_providers, build_one
-from .render import fmt_delta, status_text, usage_lines
+from .providers import build_one, build_providers
+from .render import HELP_HTML, esc, message_ping, message_ping_failed, telegram_status
 from .watcher import Watcher
 
-HELP_TEXT = """windowping
-
-/status — окна и лимиты всех провайдеров
-/status glm — только GLM
-/ping — пнуть все включённые провайдеры
-/ping codex — пнуть только Codex
-/help — это сообщение"""
+PROVIDER_ALIASES = {
+    "cc": "commandcode",
+    "command": "commandcode",
+    "command-code": "commandcode",
+    "codex": "codex",
+    "glm": "glm",
+    "zai": "glm",
+    "z.ai": "glm",
+}
 
 
 class BotCommands:
@@ -24,75 +29,95 @@ class BotCommands:
 
     # -- helpers ---------------------------------------------------------- #
 
-    def _providers(self, argument: str):
-        name = argument.strip().lower()
+    def _resolve(self, argument: str):
+        name = PROVIDER_ALIASES.get(argument.strip().lower(), argument.strip().lower())
         if not name:
             return build_providers(self.config), None
         provider = build_one(self.config, name)
         if provider is None:
-            return [], f"неизвестный провайдер: {name}"
+            known = ", ".join(self.config.providers) or "—"
+            return [], f"неизвестный провайдер: <code>{esc(name)}</code>\nесть: {esc(known)}"
         return [provider], None
 
     def status(self, argument: str = "") -> str:
-        providers, error = self._providers(argument)
+        providers, error = self._resolve(argument)
         if error:
             return error
+        if not providers:
+            return "нет включённых провайдеров"
         rows = []
         for provider in providers:
             try:
                 rows.append((provider.name, provider.usage(), None))
             except Exception as exc:  # noqa: BLE001 - report, never raise
                 rows.append((provider.name, None, str(exc)))
-        return status_text(rows) if rows else "нет включённых провайдеров"
+        header = "лимиты" if len(rows) > 1 else None
+        return telegram_status(rows, threshold=self.config.general.weekly_percent, header=header)
 
     def ping(self, argument: str = "") -> str:
-        providers, error = self._providers(argument)
+        providers, error = self._resolve(argument)
         if error:
             return error
         if not providers:
             return "нет включённых провайдеров"
         watcher = Watcher(self.config)
-        lines = []
-        last_usage = None
+        blocks: list[str] = []
         for provider in providers:
             try:
-                last_usage = provider.usage()
+                before = provider.usage()
             except Exception:  # noqa: BLE001 - ping anyway, state stays unknown
-                last_usage = None
+                before = None
             result = provider.ping()
             if result.ok:
-                bits = []
-                if result.seconds:
-                    bits.append(f"{result.seconds:.1f}s")
-                if result.tokens:
-                    bits.append(f"{result.tokens} tokens")
-                suffix = f" ({', '.join(bits)})" if bits else ""
-                lines.append(f"✓ {provider.title}{suffix}\n{result.model or 'модель по умолчанию'}")
                 watcher.state.update(
                     provider.name,
                     last_ping=time.time(),
-                    pinged_for_reset=(last_usage.five.reset_at if last_usage else None),
+                    pinged_for_reset=(before.five.reset_at if before else None),
+                    last_ping_result={
+                        "ok": True,
+                        "model": result.model,
+                        "tokens": result.tokens,
+                        "seconds": round(result.seconds, 1),
+                    },
+                )
+                after = None
+                try:
+                    after = provider.usage()
+                except Exception:  # noqa: BLE001 - cosmetic only
+                    after = None
+                blocks.append(
+                    message_ping(
+                        provider.title,
+                        result.model,
+                        result.tokens,
+                        result.seconds,
+                        reset_at=(after.five.reset_at if after else None),
+                    )
                 )
             else:
-                lines.append(f"✗ {provider.title}: {result.error}")
+                blocks.append(message_ping_failed(provider.title, result.error))
         watcher.state.save()
-        if last_usage is not None and len(providers) == 1:
-            lines.append("")
-            lines.extend(usage_lines(last_usage))
-        return "\n".join(lines)
+        return "\n\n".join(blocks)
 
     # -- dispatch --------------------------------------------------------- #
 
     def handle(self, text: str) -> str | None:
         text = text.strip()
-        if not text.startswith("/"):
+        if not text:
             return None
-        command, _, argument = text.partition(" ")
-        command = command.split("@", 1)[0].lower()
-        if command in ("/status", "/s"):
+        if text.startswith("/"):
+            command, _, argument = text.partition(" ")
+            command = command.split("@", 1)[0].lower()
+        else:
+            # Bare words work too, so "status" in a hurry is not a syntax error.
+            command, _, argument = text.partition(" ")
+            command = "/" + command.lower()
+        argument = argument.strip()
+
+        if command in ("/status", "/s", "/лимиты"):
             return self.status(argument)
-        if command in ("/ping", "/p"):
+        if command in ("/ping", "/p", "/пинг"):
             return self.ping(argument)
-        if command in ("/help", "/start", "/h"):
-            return HELP_TEXT
-        return f"не знаю такую команду: {command}\n\n{HELP_TEXT}"
+        if command in ("/help", "/start", "/h", "/помощь"):
+            return HELP_HTML
+        return f"не знаю команду <code>{esc(command)}</code>\n\n{HELP_HTML}"
