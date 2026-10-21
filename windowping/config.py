@@ -152,6 +152,12 @@ enabled = true
 model = ""
 effort = "low"
 prompt = "ok"
+# How to trigger a window: "cli" runs `codex exec` (agent prompt included,
+# ~12k tokens per ping) or "api" posts one raw Responses turn (~16 tokens) to
+# the same ChatGPT backend endpoint. ping_fallback retries through the CLI if
+# the API path fails, so a backend change cannot silently break window chaining.
+ping_mode = "cli"
+ping_fallback = true
 # bin = "codex"
 # auth_file = "~/.codex/auth.json"
 # config_file = "~/.codex/config.toml"

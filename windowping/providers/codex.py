@@ -14,7 +14,11 @@ import os
 import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
+from typing import Iterator
 
 from ..config import ProviderConfig
 from ..http import HttpError, request_json
@@ -23,6 +27,10 @@ from .base import PingResult, Usage, Window
 DEFAULT_BASE = "https://chatgpt.com/backend-api"
 OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+RESPONSES_PATH = "/codex/responses"
+# The backend rejects anything smaller ("Expected a value >= 16").
+API_MIN_OUTPUT_TOKENS = 16
+CLI_ORIGINATOR = "codex_cli_rs"
 DEFAULT_AUTH_FILE = Path.home() / ".codex" / "auth.json"
 DEFAULT_CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
 DEFAULT_MODELS_CACHE = Path.home() / ".codex" / "models_cache.json"
@@ -243,7 +251,145 @@ class CodexProvider:
         command.append(self.prompt)
         return command
 
+    def ping_mode(self) -> str:
+        mode = str(self.cfg.get("ping_mode") or "cli").strip().lower()
+        return mode if mode in ("api", "cli") else "cli"
+
     def ping(self) -> PingResult:
+        """Trigger a window: over the CLI (rich, ~12k tokens) or the API (tiny)."""
+        if self.ping_mode() != "api":
+            return self._cli_ping()
+        result = self._api_ping()
+        if result.ok or not self.cfg.flag("ping_fallback", True):
+            return result
+        fallback = self._cli_ping()
+        if fallback.ok:
+            fallback.detail = f"api ping failed ({result.error}); fell back to codex exec"
+            return fallback
+        fallback.error = f"api: {result.error} | cli: {fallback.error}"
+        return fallback
+
+    def _api_ping(self) -> PingResult:
+        """One raw Responses turn against the ChatGPT backend.
+
+        This is the same endpoint the Codex CLI uses, so the request is billed
+        against the subscription — but without the agent system prompt, which is
+        what makes the CLI path cost ~12k input tokens per ping.
+        """
+        model = self.ping_model()
+        if not model:
+            return PingResult(
+                ok=False,
+                error="ping_mode=api needs a model: set providers.codex.model "
+                "(the Codex catalog could not be read)",
+            )
+        body = {
+            "model": model,
+            "stream": True,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": self.prompt}],
+                }
+            ],
+            "tools": [],
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "reasoning": {"effort": self.effort},
+            "store": False,
+            "include": [],
+            "max_output_tokens": API_MIN_OUTPUT_TOKENS,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.token()}",
+            "originator": CLI_ORIGINATOR,
+            "User-Agent": f"{CLI_ORIGINATOR}/0.163.0",
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+        }
+        account = self.account_id()
+        if account:
+            headers["ChatGPT-Account-ID"] = account
+
+        started = time.monotonic()
+        try:
+            events = self._post_responses(body, headers)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(65536).decode("utf-8", errors="replace")
+            if exc.code == 401:
+                try:
+                    headers["Authorization"] = f"Bearer {self.refresh()}"
+                    events = self._post_responses(body, headers)
+                except urllib.error.HTTPError as retry_exc:
+                    return PingResult(
+                        ok=False,
+                        error=f"HTTP {retry_exc.code} after token refresh",
+                        model=model,
+                        seconds=time.monotonic() - started,
+                    )
+                except Exception as retry_exc:  # noqa: BLE001
+                    return PingResult(ok=False, error=str(retry_exc), model=model)
+            else:
+                return PingResult(
+                    ok=False,
+                    error=_api_error_text(exc.code, detail),
+                    model=model,
+                    seconds=time.monotonic() - started,
+                )
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return PingResult(ok=False, error=f"{type(exc).__name__}: {exc}", model=model)
+
+        input_tokens = output_tokens = None
+        completed = False
+        failure = None
+        for event in events:
+            kind = event.get("type")
+            if kind == "response.completed":
+                completed = True
+                usage = event.get("usage")
+                if not isinstance(usage, dict):
+                    response = event.get("response")
+                    usage = response.get("usage") if isinstance(response, dict) else {}
+                if isinstance(usage, dict):
+                    if isinstance(usage.get("input_tokens"), int):
+                        input_tokens = usage["input_tokens"]
+                    if isinstance(usage.get("output_tokens"), int):
+                        output_tokens = usage["output_tokens"]
+            elif kind in ("error", "response.failed"):
+                failure = _event_error(event) or "request failed"
+
+        elapsed = time.monotonic() - started
+        if failure and not completed:
+            return PingResult(ok=False, error=failure, model=model, seconds=elapsed)
+        if not completed:
+            return PingResult(
+                ok=False,
+                error="stream ended without response.completed",
+                model=model,
+                seconds=elapsed,
+            )
+        tokens = None
+        if input_tokens is not None or output_tokens is not None:
+            tokens = (input_tokens or 0) + (output_tokens or 0)
+        return PingResult(ok=True, seconds=elapsed, model=model, tokens=tokens)
+
+    def _post_responses(self, body: dict, headers: dict):
+        """POST the Responses request and return an iterator of SSE events."""
+        url = f"{self.base_url()}{RESPONSES_PATH}"
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, separators=(",", ":")).encode(),
+            method="POST",
+        )
+        for key, value in headers.items():
+            request.add_header(key, value)
+        request.add_header("session-id", str(uuid.uuid4()))
+        request.add_header("thread-id", str(uuid.uuid4()))
+        request.add_header("x-client-request-id", str(uuid.uuid4()))
+        response = urllib.request.urlopen(request, timeout=self.ping_timeout)
+        return _iter_sse(response)
+
+    def _cli_ping(self) -> PingResult:
         binary = shutil.which(self.bin) or (self.bin if Path(self.bin).exists() else None)
         if not binary:
             return PingResult(ok=False, error=f"`{self.bin}` not found in PATH", model=self.ping_model() or None)
@@ -275,6 +421,70 @@ class CodexProvider:
             model=self.ping_model() or None,
             tokens=tokens,
         )
+
+
+def _iter_sse(stream) -> Iterator[dict]:
+    """Yield JSON events from a Server-Sent-Events byte stream."""
+    buffer: list[str] = []
+
+    def flush():
+        if not buffer:
+            return None
+        payload = "\n".join(buffer)
+        buffer.clear()
+        if payload == "[DONE]":
+            return None
+        try:
+            event = json.loads(payload)
+        except ValueError:
+            return None
+        return event if isinstance(event, dict) else None
+
+    for raw in stream:
+        line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+        if line == "":
+            event = flush()
+            if event is not None:
+                yield event
+            continue
+        if line.startswith(":") or line.startswith("event:"):
+            continue
+        if line.startswith("data:"):
+            buffer.append(line[5:].lstrip())
+    event = flush()
+    if event is not None:
+        yield event
+
+
+def _api_error_text(code: int, detail: str) -> str:
+    message = detail.strip()
+    try:
+        parsed = json.loads(detail)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        error = parsed.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            message = str(error["message"])
+        elif isinstance(error, str) and error:
+            message = error
+    return f"HTTP {code}: {message[:300]}"
+
+
+def _event_error(event: dict) -> str | None:
+    error = event.get("error")
+    if isinstance(error, dict):
+        return str(error.get("message") or error)[:300]
+    if isinstance(error, str) and error:
+        return error[:300]
+    response = event.get("response")
+    if isinstance(response, dict):
+        response_error = response.get("error")
+        if isinstance(response_error, dict):
+            return str(response_error.get("message") or response_error)[:300]
+        if response.get("status") == "failed":
+            return "response failed"
+    return None
 
 
 def _tokens_from_events(stdout: str) -> int | None:

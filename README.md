@@ -42,7 +42,7 @@ Safety rails, all configurable:
 
 | Provider | Usage (free) | Ping (billable) | Auth |
 |---|---|---|---|
-| **Codex** | `GET chatgpt.com/backend-api/wham/usage` | `codex exec --ephemeral --json` | OAuth in `~/.codex/auth.json` |
+| **Codex** | `GET chatgpt.com/backend-api/wham/usage` | `POST …/backend-api/codex/responses` (api mode, ~16 tokens) or `codex exec --ephemeral --json` (cli mode) | OAuth in `~/.codex/auth.json` |
 | **Command Code** | `GET api.commandcode.ai/alpha/billing/credits` | `POST …/provider/v1/chat/completions` | API key in `~/.commandcode/auth.json` |
 | **GLM Coding Plan** | `GET api.z.ai/api/monitor/usage/quota/limit` | `POST api.z.ai/api/coding/paas/v4/chat/completions` | `GLM_API_KEY` |
 
@@ -53,6 +53,26 @@ both tools stay in sync.
 > **GLM note:** only coding-plan tiers count. Legacy models such as
 > `glm-4.5-flash` answer `200 OK` but never touch the plan's quota, so they never
 > start a window. Keep `model` on a coding tier (`glm-5.3-flash` by default).
+
+### Codex ping modes
+
+Two ways to start a Codex window, chosen with `[providers.codex] ping_mode`:
+
+| mode | what happens | measured cost |
+|---|---|---|
+| `cli` (default) | `codex exec --ephemeral --json …` — the official CLI, which injects its whole agent prompt | ~12 000 input tokens per ping |
+| `api` | one raw `POST /backend-api/codex/responses` with a one-message input, `max_output_tokens = 16` | **16 tokens** (11 in / 5 out), ~1.2 s |
+
+`api` speaks the same backend endpoint the CLI uses and authenticates with the
+same OAuth token, so it is billed against the subscription. It is an internal
+ChatGPT endpoint, though, not the documented public API: it can change without
+notice, and `ping_fallback = true` (the default) keeps window chaining alive by
+retrying through `codex exec` if the raw request fails. Measured on
+`codex-cli 0.163.0`.
+
+> Requests below `max_output_tokens = 16` are rejected outright
+> (`integer_below_min_value`), and the meter is an integer percentage, so a
+> 16-token ping will not visibly move it.
 
 ## Install
 
@@ -122,6 +142,8 @@ enabled = true
 model = ""                   # "" = cheapest model in the Codex catalog
 effort = "low"
 prompt = "ok"
+ping_mode = "cli"            # "cli" = codex exec (~12k tokens) | "api" = raw response (~16)
+ping_fallback = true         # api mode: retry through the CLI if the API path fails
 
 [providers.commandcode]
 enabled = true
@@ -220,9 +242,10 @@ For every provider, every tick:
 python3 -m unittest discover -s tests -v
 ```
 
-48 unit tests cover window parsing for all three providers, the decision
+58 unit tests cover window parsing for all three providers, the decision
 algorithm, the watcher's notification/state behaviour, the systemd unit
-renderer, and the Telegram HTML formatting. No network needed.
+renderer, the Telegram HTML formatting, and the Codex API ping path (SSE
+parsing, mode dispatch, CLI fallback). No network needed.
 
 ## Releasing to PyPI
 
