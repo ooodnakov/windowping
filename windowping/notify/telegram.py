@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -33,6 +34,11 @@ def _call(token: str, method: str, payload: dict | None = None, timeout: float =
         raise TelegramError(f"HTTP {exc.code}: {detail[:300]}") from None
     except urllib.error.URLError as exc:
         raise TelegramError(f"network error: {exc.reason}") from None
+    except (http.client.HTTPException, OSError, ValueError) as exc:
+        # RemoteDisconnected, IncompleteRead, resets, timeouts: Telegram drops
+        # long-poll connections routinely. None of this may escape as-is, or the
+        # polling thread dies and the bot goes silent until the next restart.
+        raise TelegramError(f"transport error: {type(exc).__name__}: {exc}") from None
     if not body.get("ok"):
         raise TelegramError(str(body.get("description") or body))
     return body.get("result") or {}
@@ -110,10 +116,36 @@ class TelegramPoller:
     def reply(self, chat_id: int, text: str) -> None:
         try:
             send_message(self.token, chat_id, text)
-        except TelegramError as exc:  # pragma: no cover - transport noise
+        except Exception as exc:  # noqa: BLE001 - transport noise must not kill the loop
             print(f"telegram reply failed: {exc}", flush=True)
 
+    def handle_update(self, update: dict) -> None:
+        """Answer one update. Any failure here is contained to this message."""
+        message = update.get("message") or {}
+        chat_id = (message.get("chat") or {}).get("id")
+        text = (message.get("text") or "").strip()
+        if not chat_id or not text or not self.allowed(int(chat_id)):
+            return
+        # Telegram reports the UI language of the sender; "auto" mode uses it.
+        sender_lang = (message.get("from") or {}).get("language_code")
+        lang = self.cfg.resolve_lang(sender_lang)
+        try:
+            answer = self.on_message(text, sender_lang)
+        except Exception as exc:  # noqa: BLE001 - one bad command must not stop the bot
+            from ..i18n import t
+
+            answer = t(lang, "reply_error", error=exc)
+        if answer:
+            self.reply(int(chat_id), answer)
+
     def poll_forever(self, stop_event=None) -> None:  # pragma: no cover - network loop
+        """Poll until stopped. Never returns on an error: a dead thread is a silent bot.
+
+        Telegram drops long-poll connections routinely (``RemoteDisconnected``),
+        so every failure — transport, JSON, or a broken update — is logged and
+        retried with a capped backoff instead of escaping the thread.
+        """
+        backoff = 5.0
         while not (stop_event and stop_event.is_set()):
             try:
                 updates = _call(
@@ -124,24 +156,20 @@ class TelegramPoller:
                 )
             except TelegramError as exc:
                 print(f"telegram poll failed: {exc}", flush=True)
-                time.sleep(5)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
                 continue
-            items = updates if isinstance(updates, list) else []
-            for update in items:
+            except Exception as exc:  # noqa: BLE001 - last line of defence
+                print(f"telegram poll crashed: {type(exc).__name__}: {exc}", flush=True)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
+                continue
+            backoff = 5.0
+            for update in updates if isinstance(updates, list) else []:
+                # Advance the offset first: a message that keeps blowing up must
+                # not be replayed forever.
                 self._offset = int(update.get("update_id", 0)) + 1
-                message = update.get("message") or {}
-                chat_id = (message.get("chat") or {}).get("id")
-                text = (message.get("text") or "").strip()
-                if not chat_id or not text or not self.allowed(int(chat_id)):
-                    continue
-                # Telegram reports the UI language of the sender; "auto" mode uses it.
-                sender_lang = (message.get("from") or {}).get("language_code")
-                lang = self.cfg.resolve_lang(sender_lang)
                 try:
-                    answer = self.on_message(text, sender_lang)
-                except Exception as exc:  # noqa: BLE001 - one bad command must not stop the bot
-                    from ..i18n import t
-
-                    answer = t(lang, "reply_error", error=exc)
-                if answer:
-                    self.reply(int(chat_id), answer)
+                    self.handle_update(update)
+                except Exception as exc:  # noqa: BLE001 - one update, not the loop
+                    print(f"telegram update failed: {type(exc).__name__}: {exc}", flush=True)
