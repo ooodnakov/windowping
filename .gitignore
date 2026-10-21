@@ -8,3 +8,6 @@ venv/
 .pytest_cache/
 .ruff_cache/
 *.log
+
+# Local working config: holds a real bot token, never commit it.
+config.toml

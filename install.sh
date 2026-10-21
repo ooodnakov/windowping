@@ -34,6 +34,22 @@ EOF
 chmod 0755 "$BIN_DIR/windowping"
 echo "installed launcher: $BIN_DIR/windowping"
 
+# Seed the live config from a local ./config.toml (git-ignored working copy) the
+# first time only — never overwrite an existing live config.
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/windowping"
+CONFIG_FILE="$CONFIG_DIR/config.toml"
+mkdir -p "$CONFIG_DIR"
+if [ -f "$REPO/config.toml" ] && [ ! -f "$CONFIG_FILE" ]; then
+  install -m 0600 "$REPO/config.toml" "$CONFIG_FILE"
+  echo "config seeded: $CONFIG_FILE (from $REPO/config.toml)"
+elif [ -f "$CONFIG_FILE" ]; then
+  chmod 0600 "$CONFIG_FILE" 2>/dev/null || true
+  echo "config kept: $CONFIG_FILE"
+else
+  echo "no config yet — edit it before starting the service:"
+  echo "  windowping config init    # writes $CONFIG_FILE"
+fi
+
 if [ "${1:-}" = "--no-systemd" ]; then
   echo "skipping systemd unit"
   exit 0
@@ -43,5 +59,6 @@ mkdir -p "$UNIT_DIR"
 sed "s|@REPO@|$REPO|g" "$REPO/systemd/windowping.service" > "$UNIT_DIR/windowping.service"
 systemctl --user daemon-reload
 systemctl --user enable --now windowping.service
+systemctl --user restart windowping.service
 echo "systemd unit installed and started: windowping.service"
 echo "  journalctl --user -u windowping.service -f"
