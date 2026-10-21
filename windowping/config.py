@@ -150,7 +150,7 @@ register_grace = "30m"
 tick_interval = "60s"
 # Wall clock budget for one provider ping.
 ping_timeout = "180s"
-# Directory the Codex ping runs in.
+# Directory the Codex and Claude pings run in.
 workdir = "~"
 
 # Paths are optional; these are the defaults.
@@ -191,6 +191,22 @@ usage_url = "https://api.z.ai/api/monitor/usage/quota/limit"
 # api_key = ""
 api_key_env = "GLM_API_KEY"
 env_file = "~/.hermes/.env"
+
+[providers.claude]
+# Off until you turn it on: the ping opens an interactive Claude Code session
+# (print mode, `claude -p`, bills API credits and never starts a 5h window).
+enabled = false
+model = "haiku"
+prompt = "ok"
+# The usage endpoint throttles hard; the watcher reuses a read this long,
+# unless one of its resets has passed meanwhile.
+read_interval = "5m"
+# Folder the ping runs in. Default: workdir when Claude Code trusts it, else a
+# trusted folder without project settings (a ping cannot answer the trust dialog).
+# ping_dir = "~/Projects/some-trusted-repo"
+# extra_args = ["--effort", "low"]
+# bin = "claude"
+# auth_file = "~/.claude/.credentials.json"   # default: Keychain on macOS
 
 [telegram]
 enabled = false

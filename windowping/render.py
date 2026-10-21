@@ -154,6 +154,7 @@ _DETAIL_RULES: dict[str, list[tuple[re.Pattern[str], str]]] = {
         (re.compile(r"^(?P<count>\d+) reset credit\(s\) available$"), "{count} сброс(а) в запасе"),
         (re.compile(r"^\$(?P<amount>[\d.]+) monthly credits left$"), "на месяц осталось ${amount}"),
         (re.compile(r"^no usage windows on this plan$"), "на плане нет окон"),
+        (re.compile(r"^(?P<label>.+) weekly (?P<pct>\d+)%$"), "{label} — неделя {pct}%"),
     ],
 }
 
