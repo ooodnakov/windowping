@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..config import Config, ProviderConfig
-from . import claude, codex, commandcode, glm
+from . import claude, codex, commandcode, glm, kimi, minimax
 from .base import PROVIDER_TITLES, PingResult, Provider, Usage, Window
 
 BUILDERS = {
@@ -11,10 +11,12 @@ BUILDERS = {
     "codex": codex.build,
     "commandcode": commandcode.build,
     "glm": glm.build,
+    "kimi": kimi.build,
+    "minimax": minimax.build,
 }
 
 # Order used for display when the config does not dictate one.
-DEFAULT_ORDER = ("codex", "commandcode", "glm", "claude")
+DEFAULT_ORDER = ("codex", "commandcode", "glm", "claude", "kimi", "minimax")
 
 
 def build_providers(config: Config) -> list[Provider]:
@@ -57,5 +59,7 @@ __all__ = [
     "codex",
     "commandcode",
     "glm",
+    "kimi",
+    "minimax",
     "title",
 ]

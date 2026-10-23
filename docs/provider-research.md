@@ -15,8 +15,11 @@ account. **INFERRED** — deduced from a working third-party client or docs word
 | `codex` | `GET https://chatgpt.com/backend-api/wham/usage` | `POST …/backend-api/codex/responses`, `max_output_tokens: 16` (~16 tokens measured) or `codex exec` in `cli` mode | production |
 | `commandcode` | `GET https://api.commandcode.ai/alpha/billing/credits` | `POST …/provider/v1/chat/completions`, `max_tokens: 1` | production |
 | `glm` | `GET https://api.z.ai/api/monitor/usage/quota/limit` (`unit` 3 = 5h, 6 = weekly) | `POST …/coding/paas/v4/chat/completions`, `glm-5.3-flash` | production |
+| `claude` | `GET https://api.anthropic.com/api/oauth/usage` | interactive `claude` turn on a pty, or opt-in 1-token `/v1/messages` | production, opt-in |
+| `kimi` | `GET https://api.kimi.com/coding/v1/usages` | `POST https://api.kimi.com/coding/v1/chat/completions`, `max_tokens: 1` | usage **VERIFIED**, ping **INFERRED**, disabled by default |
+| `minimax` | `GET https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | `POST https://api.minimax.io/v1/text/chatcompletion_v2`, `max_tokens: 1` | usage **VERIFIED**, ping **INFERRED**, disabled by default |
 
-## Candidates worth adding
+## Implemented details
 
 ### Claude Code (Pro / Max)
 
@@ -53,7 +56,7 @@ never starts a subscription window. The ping that does work is one *interactive*
 `windowping/providers/claude.py` and the "Claude ping" section of the README,
 which also covers folder-trust handling and the read-only use of the token.
 
-### Kimi for Coding
+### Kimi for Coding — implemented as `providers/kimi.py`
 
 **VERIFIED** via a working third-party client
 ([`kimi-code-usage`](https://github.com/Golden0Voyager/kimi-code-usage)):
@@ -65,10 +68,13 @@ Authorization: Bearer sk-kimi-…   (or the Kimi CLI OAuth token)
 ```
 
 Windows: 5h, weekly and monthly are all reported, and the window length is in the
-payload rather than hardcoded. Ping: single-token chat on the OpenAI/Anthropic
-compatible `https://api.kimi.com/coding/v1`.
+payload rather than hardcoded — which is why the provider picks the 5h window by
+`duration × timeUnit`, not by list position. Ping: single-token chat on the
+OpenAI-compatible `https://api.kimi.com/coding/v1`. The *ping* half is **INFERRED**
+from that surface and is unverified on a live plan; the provider therefore ships
+`enabled = false` with a configurable `model`.
 
-### MiniMax coding plan
+### MiniMax coding plan — implemented as `providers/minimax.py`
 
 **VERIFIED** via a working third-party client
 ([`minimax-status`](https://github.com/JochenYang/minimax-status)):
@@ -82,8 +88,11 @@ Authorization: Bearer <plan key>
 
 Caveat: the interval in the sample payload is a fixed block (10:00–15:00), i.e.
 aligned 5h buckets rather than a rolling window anchored on first use. The
-scheduler would have to read `start_time`/`end_time` instead of assuming
-"reset + 5h".
+provider therefore classifies a block by `end_time - start_time` (≤ 7.5h → the 5h
+window, ≥ 6 days → weekly) and takes the reset from `end_time`. The *ping* is
+**INFERRED** from the OpenAI-compatible surface and unverified on a live plan;
+`base_url`, `ping_path` and `model` are all configurable because the China and
+international deployments differ.
 
 ## Rejected
 

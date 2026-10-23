@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -53,9 +54,35 @@ class Provider(Protocol):
     def ping(self) -> PingResult: ...
 
 
+def to_epoch(value) -> float | None:
+    """Accept epoch seconds, epoch milliseconds, or an ISO-8601 string."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if number <= 0:
+            return None
+        return number / 1000.0 if number > 100_000_000_000 else number
+    if isinstance(value, str) and value.strip():
+        text = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = dt.datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                return to_epoch(float(text))
+            except ValueError:
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.timestamp()
+    return None
+
+
 PROVIDER_TITLES = {
     "claude": "Claude Code",
     "codex": "Codex",
     "commandcode": "Command Code",
     "glm": "GLM Coding Plan",
+    "kimi": "Kimi for Coding",
+    "minimax": "MiniMax Coding Plan",
 }

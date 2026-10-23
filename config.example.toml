@@ -80,6 +80,30 @@ read_interval = "5m"
 # bin = "claude"
 # auth_file = "~/.claude/.credentials.json"   # default: Keychain on macOS
 
+[providers.kimi]
+# Kimi for Coding (Moonshot). Usage is read from the client's own endpoint;
+# the ping is a 1-token OpenAI-compatible call — set model to one your plan serves.
+enabled = false
+model = "kimi-k2-turbo-preview"
+prompt = "ok"
+api_key_env = "KIMI_API_KEY"
+# api_key = ""
+# base_url = "https://api.kimi.com/coding/v1"
+# usage_url = "https://api.kimi.com/coding/v1/usages"
+# env_file = "~/.hermes/.env"
+
+[providers.minimax]
+# MiniMax coding plan bills in aligned blocks, so the reset comes from the
+# block's end_time, not "reset + 5h" like the rolling providers.
+enabled = false
+model = "MiniMax-M2"
+ping_path = "/text/chatcompletion_v2"
+prompt = "ok"
+api_key_env = "MINIMAX_API_KEY"
+# api_key = ""
+# base_url = "https://api.minimax.io/v1"      # or https://api.minimaxi.com/v1
+# usage_url = "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"
+
 [telegram]
 enabled = false
 # Prefer bot_token_env over pasting the token here.

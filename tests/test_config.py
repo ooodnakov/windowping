@@ -41,12 +41,16 @@ class LoadTest(unittest.TestCase):
             self.assertEqual(config.general.tick_interval, 60)
             self.assertAlmostEqual(config.general.weekly_threshold, 0.99)
             self.assertEqual(
-                sorted(config.providers), ["claude", "codex", "commandcode", "glm"]
+                sorted(config.providers),
+                ["claude", "codex", "commandcode", "glm", "kimi", "minimax"],
             )
-            # Claude is opt-in: its ping opens an interactive Claude Code session.
-            self.assertFalse(config.providers["claude"].enabled)
+            # Opt-in providers: Claude's ping opens an interactive session, and the
+            # Kimi/MiniMax ping endpoints have not been exercised on a live plan.
+            opt_in = {"claude", "kimi", "minimax"}
+            for name in opt_in:
+                self.assertFalse(config.providers[name].enabled, name)
             self.assertTrue(
-                all(p.enabled for name, p in config.providers.items() if name != "claude")
+                all(p.enabled for name, p in config.providers.items() if name not in opt_in)
             )
             self.assertFalse(config.telegram.active)
 
