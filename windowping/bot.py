@@ -12,7 +12,7 @@ import time
 from .config import Config
 from .i18n import t
 from .providers import build_one, build_providers
-from .render import esc, help_html, message_ping, message_ping_failed, telegram_status
+from .render import esc, help_html, message_ping, message_ping_failed, telegram_stats, telegram_status
 from .watcher import Watcher
 
 PROVIDER_ALIASES = {
@@ -120,6 +120,16 @@ class BotCommands:
         watcher.state.save()
         return "\n\n".join(blocks)
 
+    def stats(self, argument: str = "", lang: str = "en") -> str:
+        days = 7
+        argument = argument.strip()
+        if argument:
+            try:
+                days = max(1, min(365, int(argument)))
+            except ValueError:
+                days = 7
+        return telegram_stats(self.watcher.history.stats(days=days), lang)
+
     # -- dispatch --------------------------------------------------------- #
 
     def handle(self, text: str, sender_lang: str | None = None) -> str | None:
@@ -142,6 +152,8 @@ class BotCommands:
             return self.status(argument, lang)
         if command in ("/ping", "/p", "/пинг"):
             return self.ping(argument, lang)
+        if command in ("/stats", "/stat", "/стата", "/статистика"):
+            return self.stats(argument, lang)
         if command in ("/help", "/start", "/h", "/помощь"):
             return help_html(lang)
         return t(lang, "unknown_command", command=esc(command)) + "\n\n" + help_html(lang)

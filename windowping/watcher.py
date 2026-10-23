@@ -8,7 +8,10 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
+import datetime as dt
+
 from .config import Config, General
+from .history import History, default_path
 from .providers.base import PingResult, Provider, Usage
 from .render import (
     fmt_delta,
@@ -18,6 +21,7 @@ from .render import (
     message_ping_failed,
     message_recovered,
     message_weekly,
+    telegram_stats,
 )
 from .state import State
 
@@ -102,6 +106,9 @@ class Watcher:
         self.config = config
         self.notifier = notifier or NullNotifier()
         self.state = State(config.general.state_file)
+        self.history = History(
+            config.general.history_file or default_path(config.general.state_file)
+        )
 
     def message_lang(self) -> str:
         """Notifications follow the owner's chat language (see TelegramConfig.lang)."""
@@ -121,6 +128,7 @@ class Watcher:
                 usage = provider.usage()
             except Exception as exc:  # noqa: BLE001 - reported, never fatal
                 self.log(f"[{provider.name}] usage error: {exc}")
+                self.history.record("error", provider=provider.name, error=str(exc))
                 self.state.update(provider.name, status=ERROR, last_error=str(exc), last_error_at=now)
                 if not self.state.already_notified(provider.name, ERROR, ERROR):
                     self.state.mark_notified(provider.name, ERROR, ERROR)
@@ -146,6 +154,7 @@ class Watcher:
                 key = f"{usage.weekly.reset_at}"
                 if not self.state.already_notified(provider.name, WEEKLY, key):
                     self.state.mark_notified(provider.name, WEEKLY, key)
+                    self.history.record("weekly", provider=provider.name, reset_at=usage.weekly.reset_at)
                     events.append(
                         (
                             WEEKLY,
@@ -187,6 +196,15 @@ class Watcher:
                         probe_reset = provider.usage().five.reset_at
                     except Exception:  # noqa: BLE001 - cosmetic only
                         probe_reset = None
+                    self.history.record(
+                        "ping",
+                        provider=provider.name,
+                        model=ping_result.model,
+                        tokens=ping_result.tokens,
+                        seconds=round(ping_result.seconds, 3) if ping_result.seconds else None,
+                        reset_at=probe_reset,
+                        mode=ping_result.detail,
+                    )
                     events.append(
                         (
                             PING,
@@ -203,6 +221,7 @@ class Watcher:
                     )
                 else:
                     self.log(f"[{provider.name}] ✗ ping failed: {ping_result.error}")
+                    self.history.record("ping_failed", provider=provider.name, error=ping_result.error)
                     self.state.update(
                         provider.name,
                         last_error=ping_result.error,
@@ -225,6 +244,31 @@ class Watcher:
 
         return results
 
+    # -- daily digest ----------------------------------------------------- #
+
+    def maybe_digest(self, now: float | None = None) -> tuple[str, str] | None:
+        """One short summary per day, sent after ``[telegram] digest_at`` (local)."""
+        at = (self.config.telegram.digest_at or "").strip()
+        if not at or not self.config.telegram.enabled:
+            return None
+        try:
+            hour, minute = (int(part) for part in at.split(":", 1))
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError
+        except ValueError:
+            self.log(f"ignoring digest_at={at!r}, expected HH:MM")
+            return None
+        moment = dt.datetime.fromtimestamp(now if now is not None else time.time())
+        if (moment.hour, moment.minute) < (hour, minute):
+            return None
+        today = moment.strftime("%Y-%m-%d")
+        if self.state.data.get("digest_sent") == today:
+            return None
+        self.state.data["digest_sent"] = today
+        self.state.save()
+        stats = self.history.stats(days=1, now=now)
+        return ("digest", telegram_stats(stats, self.message_lang(), digest=True))
+
     # -- loop ------------------------------------------------------------- #
 
     def run_forever(self, providers: list[Provider], stop: threading.Event | None = None) -> None:
@@ -239,6 +283,7 @@ class Watcher:
             except ValueError:
                 pass
 
+        self.history.trim(120)
         self.log(f"watching {', '.join(p.name for p in providers)} "
                  f"(every {self.config.general.tick_interval:.0f}s, "
                  f"buffer {self.config.general.reset_buffer:.0f}s)")
@@ -248,6 +293,12 @@ class Watcher:
                 self.tick(providers)
             except Exception as exc:  # noqa: BLE001 - a bad tick must not kill the loop
                 self.log(f"tick failed: {exc}")
+            try:
+                digest = self.maybe_digest()
+                if digest:
+                    self.notifier.notify(*digest)
+            except Exception as exc:  # noqa: BLE001 - the digest is never worth a crash
+                self.log(f"digest failed: {exc}")
             elapsed = time.monotonic() - started
             stop.wait(max(1.0, self.config.general.tick_interval - elapsed))
 

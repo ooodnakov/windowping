@@ -62,6 +62,8 @@ class General:
     read_timeout: float = 20.0
     workdir: Path = field(default_factory=lambda: Path.home())
     state_file: Path = DEFAULT_STATE_PATH
+    # Append-only event log behind ``windowping stats``; None = next to the state file.
+    history_file: Path | None = None
 
     @property
     def weekly_percent(self) -> float:
@@ -95,13 +97,15 @@ class TelegramConfig:
     bot_token: str = ""
     bot_token_env: str = "WINDOWPING_BOT_TOKEN"
     chat_id: int | None = None
-    notify_events: tuple[str, ...] = ("ping", "error", "weekly")
+    notify_events: tuple[str, ...] = ("ping", "error", "weekly", "digest")
     poll: bool = False
     allow_chat_ids: tuple[int, ...] = ()
     silent: bool = False
     # Deliver without a notification sound inside these local-time ranges, e.g.
     # "12:00-08:00" (wraps midnight) or "23:00-07:00,13:00-14:00". Empty = off.
     quiet_hours: str = ""
+    # Send a short "what happened overnight" summary at this local time ("" = off).
+    digest_at: str = ""
     # "auto" follows the sender's Telegram language (notifications use the
     # owner's last seen language); "en"/"ru" pin everything.
     lang: str = "auto"
@@ -238,6 +242,8 @@ silent = false
 # Deliver messages silently (no sound, no banner) inside these local-time
 # ranges. "12:00-08:00" wraps midnight; comma-separate several ranges.
 quiet_hours = ""
+# One short summary per day, sent after this local time ("" = off).
+digest_at = ""
 """
 
 
@@ -269,6 +275,11 @@ def load(path: Path | None = None) -> Config:
         read_timeout=parse_duration(general_raw.get("read_timeout"), 20.0),
         workdir=_path(general_raw.get("workdir"), Path.home()),
         state_file=_path(general_raw.get("state_file"), DEFAULT_STATE_PATH),
+        history_file=(
+            _path(general_raw.get("history_file"), DEFAULT_STATE_PATH)
+            if general_raw.get("history_file")
+            else None
+        ),
     )
     if general.tick_interval < 5:
         raise ValueError("general.tick_interval must be at least 5s")
@@ -292,11 +303,12 @@ def load(path: Path | None = None) -> Config:
         bot_token=str(tg_raw.get("bot_token") or ""),
         bot_token_env=str(tg_raw.get("bot_token_env") or "WINDOWPING_BOT_TOKEN"),
         chat_id=chat_id,
-        notify_events=tuple(tg_raw.get("notify_events") or ("ping", "error", "weekly")),
+        notify_events=tuple(tg_raw.get("notify_events") or ("ping", "error", "weekly", "digest")),
         poll=_bool(tg_raw.get("poll"), False),
         allow_chat_ids=allow_ids,
         silent=_bool(tg_raw.get("silent"), False),
         quiet_hours=str(tg_raw.get("quiet_hours") or ""),
+        digest_at=str(tg_raw.get("digest_at") or ""),
         lang=str(tg_raw.get("lang") or "auto"),
     )
     # A malformed quiet-hours spec must fail here, at startup, not mid-notification.

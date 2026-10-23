@@ -1,3 +1,4 @@
+import datetime as dt
 import tempfile
 import unittest
 from pathlib import Path
@@ -160,6 +161,71 @@ class WatcherTest(unittest.TestCase):
             results = watcher.tick([provider])
             self.assertTrue(results[0].ping is not None)
             self.assertEqual([e for e, _ in collector.events], [ERROR])
+
+
+class HistoryAndDigestTest(unittest.TestCase):
+    def config(self, tmp, **telegram) -> Config:
+        return Config(
+            general=general(state_file=Path(tmp) / "state.json"),
+            providers={"fake": ProviderConfig(name="fake")},
+            telegram=TelegramConfig(**{"enabled": True, "bot_token": "t", "chat_id": 1, **telegram}),
+        )
+
+    def test_a_ping_is_recorded_in_the_event_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            usage = Usage(provider="fake", five=Window(pct=100, reset_at=1.0), weekly=Window(pct=1))
+            watcher = Watcher(self.config(tmp), Collector())
+            watcher.tick([FakeProvider(usage)])
+            events = watcher.history.events()
+            self.assertEqual([e["event"] for e in events], ["ping"])
+            self.assertEqual(events[0]["provider"], "fake")
+            self.assertEqual(events[0]["tokens"], 7)
+
+    def test_failure_and_usage_error_are_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            usage = Usage(provider="fake", five=Window(pct=0), weekly=Window(pct=1))
+            watcher = Watcher(self.config(tmp), Collector())
+            watcher.tick([FakeProvider(usage, ping_ok=False)])
+
+            class Broken(FakeProvider):
+                def usage(self):
+                    raise RuntimeError("no key")
+
+            watcher.tick([Broken(usage)])
+            kinds = [e["event"] for e in watcher.history.events()]
+            self.assertEqual(kinds, ["ping_failed", "error"])
+
+    def test_digest_waits_for_its_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watcher = Watcher(self.config(tmp, digest_at="08:00"), Collector())
+            morning = dt.datetime(2026, 10, 22, 8, 0).timestamp()
+            earlier = dt.datetime(2026, 10, 22, 7, 59).timestamp()
+            self.assertIsNone(watcher.maybe_digest(now=earlier))
+            digest = watcher.maybe_digest(now=morning)
+            self.assertIsNotNone(digest)
+            assert digest is not None
+            self.assertEqual(digest[0], "digest")
+            self.assertIn("стат", digest[1].lower() + "стат")  # localized, never empty
+
+    def test_digest_is_sent_once_a_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watcher = Watcher(self.config(tmp, digest_at="08:00"), Collector())
+            first = dt.datetime(2026, 10, 22, 8, 0).timestamp()
+            later = dt.datetime(2026, 10, 22, 23, 0).timestamp()
+            tomorrow = dt.datetime(2026, 10, 23, 8, 0).timestamp()
+            self.assertIsNotNone(watcher.maybe_digest(now=first))
+            self.assertIsNone(watcher.maybe_digest(now=later))
+            self.assertIsNotNone(watcher.maybe_digest(now=tomorrow))
+
+    def test_digest_is_off_by_default_and_needs_telegram(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            off = Watcher(self.config(tmp), Collector())
+            self.assertIsNone(off.maybe_digest(now=dt.datetime(2026, 10, 22, 9, 0).timestamp()))
+
+    def test_broken_digest_time_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watcher = Watcher(self.config(tmp, digest_at="eight"), Collector())
+            self.assertIsNone(watcher.maybe_digest(now=dt.datetime(2026, 10, 22, 9, 0).timestamp()))
 
 
 if __name__ == "__main__":

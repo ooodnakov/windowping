@@ -289,6 +289,90 @@ def message_test(config_path: str, providers: list[str], lang: str = "en") -> st
     )
 
 
+def _hours(value: float) -> str:
+    if value >= 10:
+        return f"{value:.0f}"
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
+def _stats_body(stats, lang: str) -> list[str]:
+    """Aligned ``<pre>`` lines shared by /stats and the morning digest."""
+    rows = [
+        (t(lang, "stats_windows"), str(stats.pings)),
+        (t(lang, "stats_coverage"), f"{_hours(stats.coverage_hours)}h"),
+    ]
+    if stats.failures:
+        rows.append((t(lang, "stats_failed"), str(stats.failures)))
+    if stats.tokens:
+        rows.append((t(lang, "stats_tokens"), f"{stats.tokens:,}"))
+    if stats.seconds:
+        rows.append((t(lang, "stats_time"), f"{stats.seconds:.0f}s"))
+    width = max(len(label) for label, _ in rows)
+    return [f"{label.ljust(width)}  {value}" for label, value in rows]
+
+
+def telegram_stats(stats, lang: str = "en", *, digest: bool = False) -> str:
+    head = "🌙" if digest else "📊"
+    label = t(lang, "digest_hint") if digest else t(lang, "stats_header")
+    period = t(lang, "stats_period", days=stats.days)
+    text = f"{head} <b>{esc(label)}</b> · <i>{esc(period)}</i>"
+    if not stats.pings and not stats.failures:
+        return text + f"\n<i>{esc(t(lang, 'stats_empty'))}</i>"
+    text += "\n<pre>" + "\n".join(esc(line) for line in _stats_body(stats, lang)) + "</pre>"
+    per_provider = [(name, s) for name, s in stats.providers.items() if name and (s.pings or s.failures)]
+    if per_provider and not digest:
+        per_provider.sort(key=lambda item: (-item[1].pings, item[0]))
+        lines = []
+        for name, bucket in per_provider:
+            bits = [f"{bucket.pings}"]
+            if bucket.tokens:
+                bits.append(f"{bucket.tokens} tok")
+            if bucket.failures:
+                bits.append(f"✗{bucket.failures}")
+            lines.append(f"{name.ljust(12)} {' · '.join(bits)}")
+        text += f"\n<b>{esc(t(lang, 'stats_by_provider'))}</b>\n<pre>" + "\n".join(esc(l) for l in lines) + "</pre>"
+    return text
+
+
+def stats_text(stats, *, provider: str | None = None) -> str:
+    """Plain-text summary for the CLI (English, like the rest of the CLI)."""
+    period = f"last {stats.days}d"
+    if not stats.pings and not stats.failures:
+        return f"windowping stats — {period}\n\nno pings recorded yet"
+    lines = [f"windowping stats — {period}", ""]
+    lines.append(f"windows opened   {stats.pings}   (~{_hours(stats.coverage_hours)}h of coverage)")
+    if stats.failures:
+        lines.append(f"failed pings     {stats.failures}")
+    if stats.errors:
+        lines.append(f"usage errors     {stats.errors}")
+    if stats.weekly_stops:
+        lines.append(f"weekly stops     {stats.weekly_stops}")
+    if stats.tokens:
+        lines.append(f"tokens spent     {stats.tokens:,}")
+    if stats.seconds:
+        lines.append(f"time in pings    {stats.seconds:.1f}s")
+    rows = [
+        (name, bucket)
+        for name, bucket in stats.providers.items()
+        if name and (provider is None or name == provider) and (bucket.pings or bucket.failures)
+    ]
+    if rows:
+        rows.sort(key=lambda item: (-item[1].pings, item[0]))
+        lines.append("")
+        lines.append("by provider")
+        width = max(len(name) for name, _ in rows)
+        for name, bucket in rows:
+            bits = [f"{bucket.pings} window(s)"]
+            if bucket.tokens:
+                bits.append(f"{bucket.tokens:,} tok")
+            if bucket.seconds:
+                bits.append(f"{bucket.seconds:.1f}s")
+            if bucket.failures:
+                bits.append(f"{bucket.failures} failed")
+            lines.append(f"  {name.ljust(width)}  {' · '.join(bits)}")
+    return "\n".join(lines)
+
+
 HELP_HTML = help_text("en")
 
 

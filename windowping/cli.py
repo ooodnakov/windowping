@@ -12,9 +12,10 @@ from pathlib import Path
 from . import __version__
 from .bot import BotCommands
 from .config import DEFAULT_CONFIG_PATH, load, write_default_config
+from .history import History, default_path
 from .notify import TelegramNotifier, TelegramPoller, send_message
 from .providers import build_one, build_providers
-from .render import message_test, status_text, usage_lines
+from .render import message_test, stats_text, status_text, usage_lines
 from . import service as service_mod
 from .watcher import Watcher
 
@@ -101,11 +102,55 @@ def cmd_ping(args) -> int:
                 last_ping=time.time(),
                 pinged_for_reset=(usage.five.reset_at if usage else None),
             )
+            watcher.history.record(
+                "ping",
+                provider=provider.name,
+                model=result.model,
+                tokens=result.tokens,
+                seconds=round(result.seconds, 3) if result.seconds else None,
+                mode=result.detail or "manual",
+            )
         else:
             print(f"{provider.name:<12} ✗ {result.error}")
+            watcher.history.record("ping_failed", provider=provider.name, error=result.error)
             rc = 1
     watcher.state.save()
     return rc
+
+
+def cmd_stats(args) -> int:
+    config = load(args.config)
+    history = History(config.general.history_file or default_path(config.general.state_file))
+    if args.trim:
+        dropped = history.trim(keep_days=args.trim)
+        if not args.json:
+            print(f"trimmed {dropped} event(s) older than {args.trim}d\n")
+    stats = history.stats(days=args.days)
+    if args.json:
+        payload = {
+            "days": stats.days,
+            "pings": stats.pings,
+            "failures": stats.failures,
+            "errors": stats.errors,
+            "weekly_stops": stats.weekly_stops,
+            "tokens": stats.tokens,
+            "seconds": round(stats.seconds, 2),
+            "coverage_hours": round(stats.coverage_hours, 1),
+            "providers": {
+                name: {
+                    "pings": bucket.pings,
+                    "failures": bucket.failures,
+                    "tokens": bucket.tokens,
+                    "seconds": round(bucket.seconds, 2),
+                }
+                for name, bucket in stats.providers.items()
+                if name
+            },
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+    print(stats_text(stats, provider=args.provider or None))
+    return 0
 
 
 def cmd_tick(args) -> int:
@@ -240,6 +285,13 @@ def build_parser() -> argparse.ArgumentParser:
     ping.add_argument("providers", nargs="*")
     ping.add_argument("--dry-run", action="store_true", help="show what would be pinged")
     ping.set_defaults(func=cmd_ping)
+
+    stats = subparsers.add_parser("stats", help="what the watcher did over a period")
+    stats.add_argument("--days", type=int, default=7, help="period in days (default 7)")
+    stats.add_argument("--provider", help="only this provider")
+    stats.add_argument("--json", action="store_true", help="machine-readable output")
+    stats.add_argument("--trim", type=int, metavar="DAYS", help="drop events older than DAYS first")
+    stats.set_defaults(func=cmd_stats)
 
     tick = subparsers.add_parser("tick", help="one scheduler pass (cron friendly)")
     tick.add_argument("providers", nargs="*")

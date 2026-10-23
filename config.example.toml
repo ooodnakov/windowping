@@ -95,3 +95,5 @@ silent = false
 # Deliver messages silently (no sound, no banner) inside these local-time
 # ranges. "12:00-08:00" wraps midnight; comma-separate several ranges.
 quiet_hours = ""
+# One short summary per day, sent after this local time ("" = off).
+digest_at = ""

@@ -33,6 +33,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "detail_reset_credits": "{count} reset credit(s) available",
         "detail_monthly": "${amount} monthly credits left",
         "detail_no_windows": "no usage windows on this plan",
+        "digest_hint": "night report",
+        "stats_header": "stats",
+        "stats_period": "last {days}d",
+        "stats_windows": "windows",
+        "stats_coverage": "covered",
+        "stats_failed": "failed",
+        "stats_tokens": "tokens",
+        "stats_time": "in pings",
+        "stats_empty": "no pings recorded yet",
+        "stats_by_provider": "by provider",
         "help": """<b>{name}</b>
 <i>keeps 5-hour rate-limit windows back-to-back</i>
 
@@ -41,6 +51,8 @@ STRINGS: dict[str, dict[str, str]] = {
 /status glm — one provider
 /ping — trigger a window now
 /ping codex — one provider
+/stats — what it did over 7 days
+/stats 30 — over 30 days
 /help — this message
 
 <b>How it works</b>
@@ -75,6 +87,16 @@ The last column is the time left until the reset.""",
         "detail_reset_credits": "{count} сброс(а) в запасе",
         "detail_monthly": "на месяц осталось ${amount}",
         "detail_no_windows": "на плане нет окон",
+        "digest_hint": "отчёт за ночь",
+        "stats_header": "статистика",
+        "stats_period": "за {days}д",
+        "stats_windows": "окон",
+        "stats_coverage": "покрыто",
+        "stats_failed": "сбоев",
+        "stats_tokens": "токенов",
+        "stats_time": "в пингах",
+        "stats_empty": "пингов пока не было",
+        "stats_by_provider": "по провайдерам",
         "help": """<b>{name}</b>
 <i>держит 5-часовые окна лимитов склеенными</i>
 
@@ -83,6 +105,8 @@ The last column is the time left until the reset.""",
 /status glm — только GLM
 /ping — пнуть всё сейчас
 /ping codex — пнуть один
+/stats — что сделано за 7 дней
+/stats 30 — за 30 дней
 /help — это сообщение
 
 <b>Как это работает</b>

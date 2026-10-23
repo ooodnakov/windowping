@@ -175,6 +175,10 @@ windowping watch                  # run the watcher in the foreground
 windowping watch --no-bot         # ...without the Telegram bot thread
 windowping bot                    # Telegram command bot only
 windowping notify-test            # send one test message
+windowping stats                  # what it did over the last 7 days
+windowping stats --days 30        # ...over a month
+windowping stats --json           # machine-readable
+windowping stats --trim 120       # drop events older than 120 days
 windowping config init|path|show
 windowping service install|uninstall|status|logs
 windowping service start|stop|restart|enable|disable
@@ -300,6 +304,43 @@ gpt-5.6-luna · 12.0k tok · 6.9s
 > A token that another process is already long-polling cannot be shared: a
 > Telegram bot has exactly one update stream. Use a dedicated bot for `poll = true`.
 > Notifications (piece 1) work fine with any token.
+
+## Stats and the morning digest
+
+Every ping, failure, weekly stop and usage error is appended to
+`~/.local/state/windowping/events.jsonl` (one JSON object per line, next to the
+state file; override with `[general] history_file`). Nothing else is stored, and a
+lost line can never break a ping.
+
+```sh
+$ windowping stats --days 7
+windowping stats — last 7d
+
+windows opened   23   (~115h of coverage)
+failed pings     1
+tokens spent     1,240
+time in pings    48.2s
+
+by provider
+  codex         12 window(s) · 192 tok · 22.0s
+  commandcode    8 window(s) · 256 tok · 19.4s
+  glm            3 window(s) · 792 tok · 6.8s · 1 failed
+```
+
+`≈ coverage` counts a successful ping as one 5-hour window, so it answers the only
+question that matters: how much quota window time did this keep alive.
+
+The same numbers are available in the bot with `/stats` (`/stats 30` for a month),
+and once a day as a quiet summary:
+
+```toml
+[telegram]
+digest_at = "08:00"     # local time, "" = off
+```
+
+The digest is sent once per calendar day after the configured time — after a
+restart, mid-day, whenever the watcher next runs. `digest` has to be listed in
+`notify_events` (it is by default).
 
 ## systemd
 
