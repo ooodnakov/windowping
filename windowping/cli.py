@@ -15,7 +15,7 @@ from . import doctor as doctor_mod
 from .config import DEFAULT_CONFIG_PATH, load, write_default_config
 from .history import History, default_path
 from .notify import TelegramNotifier, TelegramPoller, send_message
-from .providers import build_one, build_providers
+from .providers import build_matching, build_providers
 from .render import message_test, stats_text, status_text, usage_lines
 from . import service as service_mod
 from .watcher import Watcher
@@ -26,10 +26,10 @@ def _providers(config, names: list[str]):
         return build_providers(config)
     selected = []
     for name in names:
-        provider = build_one(config, name)
-        if provider is None:
+        matched = build_matching(config, name)
+        if not matched:
             raise SystemExit(f"unknown provider: {name} (have: {', '.join(config.providers) or 'none'})")
-        selected.append(provider)
+        selected.extend(matched)
     return selected
 
 

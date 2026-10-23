@@ -80,6 +80,13 @@ read_interval = "5m"
 # bin = "claude"
 # auth_file = "~/.claude/.credentials.json"   # default: Keychain on macOS
 
+# Several accounts of one provider: each key becomes its own instance
+# ("codex:work"), with its own credentials, state and windows.
+# [providers.codex.accounts.work]
+# auth_file = "~/.codex-work/auth.json"
+# [providers.codex.accounts.personal]
+# auth_file = "~/.codex/auth.json"
+
 [providers.kimi]
 # Kimi for Coding (Moonshot). Usage is read from the client's own endpoint;
 # the ping is a 1-token OpenAI-compatible call — set model to one your plan serves.

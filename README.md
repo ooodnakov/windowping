@@ -252,6 +252,37 @@ lang = "auto"                # "auto" (follow the sender) | "en" | "ru"
 Paths (`auth_file`, `models_cache`, `env_file`, `state_file`) all have sensible
 defaults and can be overridden per section.
 
+### Several accounts of one provider
+
+Two ChatGPT logins, two GLM keys, work plus personal — `accounts` turns each into
+its own instance with its own credentials, state and windows:
+
+```toml
+[providers.codex]
+enabled = true
+ping_mode = "api"
+
+[providers.codex.accounts.work]
+auth_file = "~/.codex-work/auth.json"
+
+[providers.codex.accounts.personal]
+auth_file = "~/.codex/auth.json"     # this is also the default path
+```
+
+Each account keeps every key from the provider section and may override any of
+them (`auth_file`, `api_key`, `model`, `ping_mode`, …). Instances are named
+`codex:work` and `codex:personal`:
+
+```sh
+windowping status            # both accounts, on their own rows
+windowping status codex      # both — the base name means "every account"
+windowping status codex:work # just that one
+windowping ping codex:work
+```
+
+`/status codex` works the same way in the bot. An account with `enabled = false`
+is skipped without touching the others.
+
 ## Telegram
 
 Two independent pieces, both optional:

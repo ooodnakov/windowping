@@ -11,7 +11,7 @@ import time
 
 from .config import Config
 from .i18n import t
-from .providers import build_one, build_providers
+from .providers import build_matching, build_providers
 from .render import esc, help_html, message_ping, message_ping_failed, telegram_stats, telegram_status
 from .watcher import Watcher
 
@@ -51,11 +51,12 @@ class BotCommands:
         name = PROVIDER_ALIASES.get(argument.strip().lower(), argument.strip().lower())
         if not name:
             return build_providers(self.config), None
-        provider = build_one(self.config, name)
-        if provider is None:
+        # "codex" means every account of codex; "codex:work" means just that one.
+        providers = build_matching(self.config, name)
+        if not providers:
             known = ", ".join(self.config.providers) or "—"
             return [], t(lang, "unknown_provider", name=esc(name), known=esc(known))
-        return [provider], None
+        return providers, None
 
     def status(self, argument: str = "", lang: str = "en") -> str:
         providers, error = self._resolve(argument, lang)
