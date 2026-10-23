@@ -1,3 +1,3 @@
 """windowping — keep 5h rate-limit windows back-to-back."""
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"

@@ -4,6 +4,46 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semantic](https://semver.org/).
 
+## [0.3.0] — 2026-10-23
+
+### Added
+
+- **`windowping stats`** and a daily digest. Every ping, failure, weekly stop and
+  usage error is appended to `events.jsonl` next to the state file; `stats` reports
+  windows opened, coverage hours, tokens, time spent and a per-provider breakdown,
+  in text or `--json`, for any period. `/stats` in the bot, and one quiet summary per
+  day after `[telegram] digest_at`.
+- **`windowping doctor`** — read-only checks for the things that fail silently:
+  config permissions, state directory, event log, clock skew against a real HTTP
+  `Date`, every provider's usage endpoint, the CLI binaries a `ping_mode` needs, the
+  bot token via `getMe`, quiet-hours and digest syntax, the systemd unit and whether
+  the watcher ticked recently. Exit code 1 only on real failures.
+- **Watchdog and escalation.** The unit now runs `Type=notify` with
+  `WatchdogSec=300` and `RestartSec=5s`; the watcher sends `READY`, `WATCHDOG` after
+  each tick and `STOPPING` on the way out, so systemd can tell "running" from "hung".
+  `[general] escalate_after = 3` adds an explicit "needs a hand" message after
+  repeated ping failures, pointing at `doctor`.
+- **Kimi for Coding and MiniMax coding plan providers** (both opt-in). Kimi windows
+  are identified by `duration × timeUnit` from the payload; MiniMax bills in aligned
+  blocks, so its 5h window is the block spanning ≤ 7.5h and the reset is `end_time`.
+  Ping endpoints are inferred from the OpenAI-compatible surfaces and unverified on
+  a live plan — see the README caveat.
+- **Several accounts of one provider.** `[providers.codex.accounts.work]` builds the
+  provider once per account, each with its own credentials, state and windows, named
+  `codex:work`; the base name still means "every account".
+
+### Changed
+
+- `http.py` sends a `User-Agent` that follows `__version__` instead of a hardcoded
+  `0.1.0`.
+
+### Fixed
+
+- A ping recorded in the event log can no longer be lost to a timestamp that rounds
+  a fraction of a millisecond into the future.
+- `doctor` asked for a real clock source instead of reporting "no network" whenever
+  the caller did not pass one.
+
 ## [0.2.1] — 2026-10-22
 
 ### Added
