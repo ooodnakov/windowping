@@ -6,7 +6,9 @@ import json
 import urllib.error
 import urllib.request
 
-USER_AGENT = "windowping/0.1.0"
+from . import __version__
+
+USER_AGENT = f"windowping/{__version__}"
 
 
 class HttpError(RuntimeError):

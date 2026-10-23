@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from .bot import BotCommands
+from . import doctor as doctor_mod
 from .config import DEFAULT_CONFIG_PATH, load, write_default_config
 from .history import History, default_path
 from .notify import TelegramNotifier, TelegramPoller, send_message
@@ -241,6 +242,11 @@ def cmd_notify_test(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    config = load(args.config)
+    return doctor_mod.run(config, as_json=args.json)
+
+
 def cmd_service(args) -> int:
     return service_mod.run(
         args.action,
@@ -309,6 +315,10 @@ def build_parser() -> argparse.ArgumentParser:
     notify_test = subparsers.add_parser("notify-test", help="send one telegram test message")
     notify_test.add_argument("text", nargs="?", help="custom message body")
     notify_test.set_defaults(func=cmd_notify_test)
+
+    doctor = subparsers.add_parser("doctor", help="check config, auth, clock, service and the bot")
+    doctor.add_argument("--json", action="store_true", help="machine-readable output")
+    doctor.set_defaults(func=cmd_doctor)
 
     service = subparsers.add_parser(
         "service", aliases=["svc"], help="manage the systemd user unit"
