@@ -217,6 +217,20 @@ class ServiceCheckTest(unittest.TestCase):
             self.assertEqual(watcher.status, doctor.WARN)
 
 
+class InspectTest(unittest.TestCase):
+    def test_inspect_asks_for_the_clock_instead_of_skipping_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(tmp, enabled=False)
+            original = doctor.first_http_date
+            doctor.first_http_date = lambda *a, **k: time.time() - 1.0
+            try:
+                report = doctor.inspect(cfg)
+            finally:
+                doctor.first_http_date = original
+            clock = [c for c in report.checks if c.name == "clock"][0]
+            self.assertEqual(clock.status, doctor.OK)
+
+
 class ReportTest(unittest.TestCase):
     def test_exit_code_follows_failures_not_warnings(self):
         report = doctor.Report().add(

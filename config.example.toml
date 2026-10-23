@@ -16,6 +16,8 @@ tick_interval = "60s"
 ping_timeout = "180s"
 # Directory the Codex and Claude pings run in.
 workdir = "~"
+# Failed pings in a row before an explicit "needs a hand" message (0 = never).
+escalate_after = 3
 
 # Paths are optional; these are the defaults.
 # state_file = "~/.local/state/windowping/state.json"

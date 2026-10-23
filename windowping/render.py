@@ -277,6 +277,16 @@ def message_error(title: str, error: str | None, lang: str = "en") -> str:
     )
 
 
+def message_escalate(title: str, count: int, error: str | None, lang: str = "en") -> str:
+    text = (
+        f"🆘 <b>{esc(title)}</b> — {esc(t(lang, 'escalate_title'))}\n"
+        f"<i>{esc(t(lang, 'escalate_body', count=count))}</i>"
+    )
+    if error:
+        text += f"\n<pre>{esc(error)[:300]}</pre>"
+    return text + f"\n{esc(t(lang, 'escalate_hint'))}"
+
+
 def message_recovered(title: str, lang: str = "en") -> str:
     return f"♻️ <b>{esc(title)}</b> — {t(lang, 'recovered')}"
 

@@ -5,12 +5,14 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+WatchdogSec=300
 WorkingDirectory=@WORKDIR@
 @ENVLINES@
 ExecStart=@EXECSTART@
 Restart=on-failure
-RestartSec=30s
+RestartSec=5s
+# A hung watcher is restarted by the watchdog above; a crashed one by this.
 StandardOutput=journal
 StandardError=journal
 

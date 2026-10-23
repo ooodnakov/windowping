@@ -60,6 +60,8 @@ class General:
     tick_interval: float = 60.0
     ping_timeout: float = 180.0
     read_timeout: float = 20.0
+    # N failed pings in a row are worth an explicit "needs a hand" message; 0 = never.
+    escalate_after: int = 3
     workdir: Path = field(default_factory=lambda: Path.home())
     state_file: Path = DEFAULT_STATE_PATH
     # Append-only event log behind ``windowping stats``; None = next to the state file.
@@ -97,7 +99,7 @@ class TelegramConfig:
     bot_token: str = ""
     bot_token_env: str = "WINDOWPING_BOT_TOKEN"
     chat_id: int | None = None
-    notify_events: tuple[str, ...] = ("ping", "error", "weekly", "digest")
+    notify_events: tuple[str, ...] = ("ping", "error", "weekly", "digest", "escalate")
     poll: bool = False
     allow_chat_ids: tuple[int, ...] = ()
     silent: bool = False
@@ -164,6 +166,8 @@ tick_interval = "60s"
 ping_timeout = "180s"
 # Directory the Codex and Claude pings run in.
 workdir = "~"
+# Failed pings in a row before an explicit "needs a hand" message (0 = never).
+escalate_after = 3
 
 # Paths are optional; these are the defaults.
 # state_file = "~/.local/state/windowping/state.json"
@@ -273,6 +277,7 @@ def load(path: Path | None = None) -> Config:
         tick_interval=parse_duration(general_raw.get("tick_interval"), 60.0),
         ping_timeout=parse_duration(general_raw.get("ping_timeout"), 180.0),
         read_timeout=parse_duration(general_raw.get("read_timeout"), 20.0),
+        escalate_after=int(general_raw.get("escalate_after", 3) or 0),
         workdir=_path(general_raw.get("workdir"), Path.home()),
         state_file=_path(general_raw.get("state_file"), DEFAULT_STATE_PATH),
         history_file=(
@@ -303,7 +308,7 @@ def load(path: Path | None = None) -> Config:
         bot_token=str(tg_raw.get("bot_token") or ""),
         bot_token_env=str(tg_raw.get("bot_token_env") or "WINDOWPING_BOT_TOKEN"),
         chat_id=chat_id,
-        notify_events=tuple(tg_raw.get("notify_events") or ("ping", "error", "weekly", "digest")),
+        notify_events=tuple(tg_raw.get("notify_events") or ("ping", "error", "weekly", "digest", "escalate")),
         poll=_bool(tg_raw.get("poll"), False),
         allow_chat_ids=allow_ids,
         silent=_bool(tg_raw.get("silent"), False),

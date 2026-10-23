@@ -393,6 +393,18 @@ windowping service uninstall    # disable + remove the unit
 rewrites a unit whose content drifted. `loginctl enable-linger "$USER"` keeps the
 service alive when you are not logged in.
 
+The unit runs with `Type=notify` and `WatchdogSec=300`: the watcher sends
+`READY=1` when the loop starts and `WATCHDOG=1` after every tick, so systemd knows
+the difference between "running" and "hung" and restarts the latter
+(`Restart=on-failure`, `RestartSec=5s`). This is done with a ~40-line
+`sdnotify.py` over a unix datagram — no dependency. If you raise `tick_interval`
+above ~4 minutes, raise `WatchdogSec` with it, or you will be restarted for
+being slow rather than stalled.
+
+Failure handling is deliberately boring: a failed ping is reported once, and
+after `escalate_after` failures in a row (default 3) the bot says so explicitly
+and points at `windowping doctor`. A success resets the streak.
+
 Prefer cron? Drop the daemon and run one pass every minute:
 
 ```cron

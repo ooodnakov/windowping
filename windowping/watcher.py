@@ -13,10 +13,12 @@ import datetime as dt
 from .config import Config, General
 from .history import History, default_path
 from .providers.base import PingResult, Provider, Usage
+from . import sdnotify
 from .render import (
     fmt_delta,
     fmt_ts,
     message_error,
+    message_escalate,
     message_ping,
     message_ping_failed,
     message_recovered,
@@ -29,6 +31,7 @@ PING = "ping"
 ERROR = "error"
 WEEKLY = "weekly"
 RECOVERED = "recovered"
+ESCALATE = "escalate"
 STATUS = "status"
 
 
@@ -173,6 +176,7 @@ class Watcher:
                 if ping_result.ok:
                     entry = self.state.update(
                         provider.name,
+                        fail_streak=0,
                         last_ping=now,
                         pinged_for_reset=usage.five.reset_at,
                         last_ping_result={
@@ -229,6 +233,19 @@ class Watcher:
                         last_ping_result={"ok": False, "error": ping_result.error},
                     )
                     events.append((ERROR, message_ping_failed(provider.title, ping_result.error, self.message_lang())))
+                    streak = int(entry.get("fail_streak") or 0) + 1
+                    self.state.update(provider.name, fail_streak=streak)
+                    limit = self.config.general.escalate_after
+                    if limit > 0 and streak % limit == 0:
+                        self.log(f"[{provider.name}] {streak} failed pings in a row, escalating")
+                        events.append(
+                            (
+                                ESCALATE,
+                                message_escalate(
+                                    provider.title, streak, ping_result.error, self.message_lang()
+                                ),
+                            )
+                        )
 
             self.state.update(
                 provider.name,
@@ -284,6 +301,7 @@ class Watcher:
                 pass
 
         self.history.trim(120)
+        sdnotify.ready()
         self.log(f"watching {', '.join(p.name for p in providers)} "
                  f"(every {self.config.general.tick_interval:.0f}s, "
                  f"buffer {self.config.general.reset_buffer:.0f}s)")
@@ -299,8 +317,11 @@ class Watcher:
                     self.notifier.notify(*digest)
             except Exception as exc:  # noqa: BLE001 - the digest is never worth a crash
                 self.log(f"digest failed: {exc}")
+            # Type=notify + WatchdogSec: a hung tick gets the unit restarted.
+            sdnotify.watchdog()
             elapsed = time.monotonic() - started
             stop.wait(max(1.0, self.config.general.tick_interval - elapsed))
+        sdnotify.stopping()
 
     def log(self, message: str) -> None:  # pragma: no cover - output only
         stamp = time.strftime("%Y-%m-%d %H:%M:%S")

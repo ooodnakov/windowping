@@ -33,7 +33,8 @@ FAIL = "fail"
 SKIP = "skip"
 
 MARKS = {OK: "✓", WARN: "!", FAIL: "✗", SKIP: "·"}
-CLOCK_URL = "https://api.telegram.org/"
+# Any HTTPS response carries a Date header; try a few before giving up.
+CLOCK_URLS = ("https://api.telegram.org/", "https://api.z.ai/", "https://www.cloudflare.com/")
 _UNSET = object()  # "go fetch it"; a plain None means "no time source available"
 
 
@@ -158,7 +159,7 @@ def check_paths(config: Config) -> list[Check]:
     return checks
 
 
-def http_date(url: str = CLOCK_URL, timeout: float = 10.0) -> float | None:
+def http_date(url: str = CLOCK_URLS[0], timeout: float = 10.0) -> float | None:
     """Server time from any HTTP response, including a 404."""
     request = urllib.request.Request(url, method="GET")
     request.add_header("User-Agent", f"windowping/{__version__}")
@@ -179,13 +180,21 @@ def http_date(url: str = CLOCK_URL, timeout: float = 10.0) -> float | None:
     return parsed.timestamp()
 
 
+def first_http_date(urls: tuple[str, ...] = CLOCK_URLS, timeout: float = 10.0) -> float | None:
+    for url in urls:
+        stamp = http_date(url, timeout)
+        if stamp is not None:
+            return stamp
+    return None
+
+
 def check_clock(server_now: float | None | object = _UNSET, now: float | None = None) -> Check:
     now = time.time() if now is None else now
-    server_now = http_date() if server_now is _UNSET else server_now
+    server_now = first_http_date() if server_now is _UNSET else server_now
     if server_now is None:
         return Check("clock", SKIP, "could not reach a time source", "no network is not fatal")
     skew = now - server_now
-    detail = f"{skew:+.1f}s vs Telegram"
+    detail = f"{skew:+.1f}s vs a public time source"
     if abs(skew) > 600:
         return Check(
             "clock",
@@ -366,7 +375,7 @@ def check_service(config: Config, *, systemctl=None, unit: Path | None = None) -
 # -- entry point --------------------------------------------------------- #
 
 
-def inspect(config: Config, *, clock_server: float | None = None) -> Report:
+def inspect(config: Config, *, clock_server: float | None | object = _UNSET) -> Report:
     report = Report()
     report.add(check_python())
     report.add(check_config(config))
