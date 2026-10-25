@@ -69,6 +69,16 @@ class General:
     retry_delay: float = 5.0
     # One network-failure message per incident, not one per provider per tick.
     network_notify_cooldown: float = 1800.0
+    # Usage is read on this cadence instead of every tick; the Refresh button and
+    # an approaching window reset force an early read.
+    usage_interval: float = 1800.0
+    # After a failed ping, wait this long before trying again. Without it a cached
+    # reading would keep saying "ping" and the tick would hammer the provider.
+    failed_ping_cooldown: float = 300.0
+    # How long the Mute button silences routine messages.
+    mute_hours: float = 8.0
+    # One live card message, edited in place, instead of a stream of statuses.
+    card: bool = True
     workdir: Path = field(default_factory=lambda: Path.home())
     state_file: Path = DEFAULT_STATE_PATH
     # Append-only event log behind ``windowping stats``; None = next to the state file.
@@ -189,6 +199,15 @@ retry_delay = "5s"
 # When the tunnel is down, every provider fails at once. Send one message per
 # incident instead of one per provider: 30 minutes between such messages.
 network_notify_cooldown = "30m"
+# Usage is read every 30 minutes instead of every tick; the Refresh button and a
+# window reset force an early read. The tick itself stays at 60s.
+usage_interval = "30m"
+# How long to wait after a failed ping before trying again (seconds or "5m").
+failed_ping_cooldown = "5m"
+# The Mute button under the card silences routine messages for this long.
+mute_hours = 8
+# One card message, edited in place, instead of a stream of status messages.
+card = true
 
 # Paths are optional; these are the defaults.
 # state_file = "~/.local/state/windowping/state.json"
@@ -338,6 +357,10 @@ def load(path: Path | None = None) -> Config:
         read_retries=max(0, int(general_raw.get("read_retries", 1) or 0)),
         retry_delay=parse_duration(general_raw.get("retry_delay"), 5.0),
         network_notify_cooldown=parse_duration(general_raw.get("network_notify_cooldown"), 1800.0),
+        usage_interval=parse_duration(general_raw.get("usage_interval"), 1800.0),
+        failed_ping_cooldown=parse_duration(general_raw.get("failed_ping_cooldown"), 300.0),
+        mute_hours=float(general_raw.get("mute_hours", 8.0) or 8.0),
+        card=_bool(general_raw.get("card"), True),
         workdir=_path(general_raw.get("workdir"), Path.home()),
         state_file=_path(general_raw.get("state_file"), DEFAULT_STATE_PATH),
         history_file=(
@@ -348,6 +371,8 @@ def load(path: Path | None = None) -> Config:
     )
     if general.tick_interval < 5:
         raise ValueError("general.tick_interval must be at least 5s")
+    if general.usage_interval < general.tick_interval:
+        raise ValueError("general.usage_interval must not be shorter than tick_interval")
 
     providers: dict[str, ProviderConfig] = {}
     for name, section in (raw.get("providers") or {}).items():

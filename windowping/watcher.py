@@ -13,7 +13,8 @@ import datetime as dt
 from .config import Config, General
 from .history import History, default_path
 from .providers.base import PingResult, Provider, Usage
-from . import errors, sdnotify
+from . import card as card_mod
+from . import errors, sdnotify, usagecache
 from .render import (
     fmt_delta,
     fmt_ts,
@@ -21,6 +22,7 @@ from .render import (
     message_escalate,
     message_ping,
     message_ping_failed,
+    message_pings,
     message_recovered,
     message_weekly,
     telegram_stats,
@@ -105,12 +107,15 @@ class TickResult:
     decision: Decision | None
     ping: PingResult | None
     events: list[tuple[str, str]]
+    title: str = ""
 
 
 class Watcher:
     def __init__(self, config: Config, notifier: Notifier | None = None):
         self.config = config
         self.notifier = notifier or NullNotifier()
+        # Set by the CLI when Telegram is configured; see card.CardPublisher.
+        self.card = None
         self.state = State(config.general.state_file)
         self.history = History(
             config.general.history_file or default_path(config.general.state_file)
@@ -175,27 +180,43 @@ class Watcher:
     def tick(self, providers: list[Provider], *, dry_run: bool = False) -> list[TickResult]:
         now = time.time()
         results: list[TickResult] = []
+        pending: list[tuple[str, str]] = []
+        pinged: list[dict] = []
+        self._reads_this_tick = 0
+        card_changed = False
+
         for provider in providers:
             entry = self.state.provider(provider.name)
             previous_status = entry.get("status")
             events: list[tuple[str, str]] = []
-            usage, read_error = self._read_usage(provider)
+
+            usage = self._usage_for(provider, entry, now)
             if usage is None:
-                exc = read_error or RuntimeError("usage unavailable")
-                self.log(f"[{provider.name}] usage error: {exc}")
+                error = str(entry.get("last_read_error") or "usage unavailable")
+                self.log(f"[{provider.name}] usage error: {error}")
                 self.history.record(
-                    "error", provider=provider.name, error=str(exc), kind=errors.classify(str(exc))
+                    "error", provider=provider.name, error=error, kind=errors.classify(error)
                 )
-                self.state.update(provider.name, status=ERROR, last_error=str(exc), last_error_at=now)
+                self.state.update(provider.name, status=ERROR, last_error=error, last_error_at=now)
                 if not self.state.already_notified(provider.name, ERROR, ERROR):
                     self.state.mark_notified(provider.name, ERROR, ERROR)
-                    events.append((ERROR, message_error(provider.title, str(exc), self.message_lang())))
-                results.append(TickResult(provider.name, None, str(exc), None, None, events))
+                    events.append((ERROR, message_error(provider.title, error, self.message_lang())))
+                results.append(
+                    TickResult(
+                        provider=provider.name,
+                        title=provider.title,
+                        usage=None,
+                        error=error,
+                        decision=None,
+                        ping=None,
+                        events=events,
+                    )
+                )
                 self.state.save()
-                for event, text in events:
-                    self.notifier.notify(event, text)
+                pending.extend(events)
                 continue
 
+            card_changed = card_changed or bool(events)
             if entry.get("status") == ERROR:
                 notified = dict(entry.get("notified") or {})
                 notified["error"] = None  # a future failure should be reported again
@@ -215,6 +236,19 @@ class Watcher:
                         "scheduled-off",
                         f"outside schedule ({schedule.describe()}), next ping after {when}",
                     )
+            last_attempt = float(entry.get("last_attempt") or 0)
+            failed_cooldown = self.config.general.failed_ping_cooldown
+            if (
+                decision.action == "ping"
+                and last_attempt
+                and now - last_attempt < failed_cooldown
+            ):
+                decision = Decision(
+                    "cooldown",
+                    f"retrying after a failed ping in {fmt_delta(failed_cooldown - (now - last_attempt))}",
+                )
+            if decision.action != previous_status:
+                card_changed = True
             ping_result: PingResult | None = None
             if decision.action != previous_status and previous_status != ERROR:
                 self.log(f"[{provider.name}] {decision.action}: {decision.reason}")
@@ -245,6 +279,7 @@ class Watcher:
                         provider.name,
                         fail_streak=0,
                         last_ping=now,
+                        last_attempt=now,
                         pinged_for_reset=usage.five.reset_at,
                         last_ping_result={
                             "ok": True,
@@ -261,12 +296,15 @@ class Watcher:
                         bits.append(f"{ping_result.tokens} tokens")
                     suffix = f" ({', '.join(bits)})" if bits else ""
                     self.log(f"[{provider.name}] ✓ pinged{suffix} {ping_result.model or ''}".rstrip())
-                    # A free re-read tells the message when the new window ends.
-                    probe_reset = None
+                    # One extra read tells the message when the new window ends.
+                    probe = None
                     try:
-                        probe_reset = provider.usage().five.reset_at
+                        probe = provider.usage()
                     except Exception:  # noqa: BLE001 - cosmetic only
-                        probe_reset = None
+                        probe = None
+                    probe_reset = probe.five.reset_at if probe is not None else None
+                    if probe is not None:
+                        self.state.update(provider.name, usage=usagecache.from_usage(probe, now))
                     self.history.record(
                         "ping",
                         provider=provider.name,
@@ -292,6 +330,14 @@ class Watcher:
                             ),
                         )
                     )
+                    pinged.append(
+                        {
+                            "title": provider.title,
+                            "reset_at": probe_reset,
+                            "seconds": ping_result.seconds,
+                            "tokens": ping_result.tokens,
+                        }
+                    )
                 else:
                     kind = errors.classify(ping_result.error)
                     self.log(f"[{provider.name}] ✗ ping failed ({kind or 'unknown'}): {ping_result.error}")
@@ -306,6 +352,10 @@ class Watcher:
                         last_error=ping_result.error,
                         last_error_at=now,
                         last_ping_result={"ok": False, "error": ping_result.error, "kind": kind},
+                        last_attempt=now,
+                        # The cached reading is why we thought a ping was due; make
+                        # the next tick look at reality instead of the cache.
+                        refresh_requested=True,
                     )
                     streak = int(entry.get("fail_streak") or 0) + 1
                     self.state.update(provider.name, fail_streak=streak)
@@ -344,13 +394,175 @@ class Watcher:
                 decision=decision.reason,
                 checked_at=now,
             )
-            results.append(TickResult(provider.name, usage, None, decision, ping_result, events))
+            results.append(
+                TickResult(
+                    provider=provider.name,
+                    title=provider.title,
+                    usage=usage,
+                    error=None,
+                    decision=decision,
+                    ping=ping_result,
+                    events=events,
+                )
+            )
             self.state.save()
+            pending.extend(events)
 
-            for event, text in events:
-                self.notifier.notify(event, text)
+        # One tick, one message: three windows opening together is one event.
+        pings = [item for item in pending if item[0] == PING]
+        for event, text in [item for item in pending if item[0] != PING]:
+            self.notifier.notify(event, text)
+        if len(pings) == 1:
+            self.notifier.notify(*pings[0])
+        elif len(pings) > 1:
+            self.notifier.notify(PING, message_pings(pinged, self.message_lang()))
 
+        if self.card is not None and not dry_run:
+            # The card is stable: the footer shows absolute times, so a tick with
+            # nothing new would only burn an edit.
+            if card_changed or self._reads_this_tick or not self.state.data.get("card_message_id"):
+                self.publish_card(results, now)
         return results
+
+    # -- usage cache ------------------------------------------------------ #
+
+    def _usage_for(self, provider: Provider, entry: dict, now: float) -> Usage | None:
+        """Cached reading when it is still fresh, a real request when it is not."""
+        snapshot = entry.get("usage")
+        usage = usagecache.to_usage(provider.name, snapshot)
+        taken = usagecache.taken_at(snapshot)
+        forced = bool(entry.get("refresh_requested"))
+        due = usage is None or forced or (now - taken) >= self.config.general.usage_interval
+        if not due and usage is not None:
+            five = usage.five
+            if (
+                five.reset_at is not None
+                and now >= five.reset_at + self.config.general.reset_buffer
+                and entry.get("pinged_for_reset") != five.reset_at
+            ):
+                # The reset we were waiting for has happened: confirm it, so the
+                # ping lands on the new window instead of a stale one.
+                due = True
+        if not due:
+            return usage
+
+        fresh, error = self._read_usage(provider)
+        if fresh is None:
+            entry["last_read_error"] = str(error or "usage unavailable")
+            self.history.record(
+                "error", provider=provider.name, error=str(error or "usage unavailable"),
+                kind=errors.classify(str(error)),
+            )
+            if usage is not None:
+                # A stale reading beats no reading: the decision stays sane and the
+                # card keeps its numbers until the next attempt succeeds.
+                self.log(
+                    f"[{provider.name}] usage read failed ({error}); "
+                    f"using the reading from {fmt_delta(now - taken)} ago"
+                )
+                return usage
+            return None
+        entry.pop("last_read_error", None)
+        entry.pop("refresh_requested", None)
+        entry["usage"] = usagecache.from_usage(fresh, now)
+        self._reads_this_tick = getattr(self, "_reads_this_tick", 0) + 1
+        return fresh
+
+    def refresh_usage(self, providers: list[Provider]) -> list[tuple[str, Usage | None, str | None]]:
+        """Force a read now (the Refresh button) and repaint the card."""
+        now = time.time()
+        rows: list[tuple[str, Usage | None, str | None]] = []
+        for provider in providers:
+            usage, error = self._read_usage(provider)
+            entry = self.state.provider(provider.name)
+            if usage is not None:
+                entry["usage"] = usagecache.from_usage(usage, now)
+                entry.pop("refresh_requested", None)
+                entry.pop("last_read_error", None)
+            rows.append((provider.title, usage, None if usage else str(error or "usage unavailable")))
+        self.state.save()
+        if self.card is not None:
+            text = card_mod.render(
+                rows,
+                now,
+                lang=self.message_lang(),
+                updated_at=now,
+                next_at=self._next_read_at(now),
+                muted_until=self.muted_until(),
+            )
+            self.card.publish(text, self.message_lang())
+        return rows
+
+    def _next_read_at(self, now: float) -> float:
+        marks = [
+            usagecache.taken_at(entry.get("usage"))
+            for entry in (self.state.data.get("providers") or {}).values()
+        ]
+        marks = [mark for mark in marks if mark]
+        if not marks:
+            return now
+        return min(marks) + self.config.general.usage_interval
+
+    # -- mute ------------------------------------------------------------- #
+
+    def muted_until(self) -> float:
+        try:
+            return float(self.state.data.get("muted_until") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def muted(self) -> bool:
+        return self.muted_until() > time.time()
+
+    def mute(self, hours: float | None = None) -> float:
+        hours = self.config.general.mute_hours if hours is None else hours
+        until = time.time() + max(0.0, hours) * 3600
+        self.state.data["muted_until"] = until
+        self.state.save()
+        return until
+
+    # -- card ------------------------------------------------------------- #
+
+    def card_rows(self, providers: list[Provider]) -> list[tuple[str, Usage | None, str | None]]:
+        """What the card shows without asking anyone: the last known readings."""
+        rows: list[tuple[str, Usage | None, str | None]] = []
+        for provider in providers:
+            entry = self.state.provider(provider.name)
+            usage = usagecache.to_usage(provider.name, entry.get("usage"))
+            error = None if usage is not None else str(entry.get("last_read_error") or "no reading yet")
+            rows.append((provider.title, usage, error))
+        return rows
+
+    def repaint_card(self, providers: list[Provider], now: float | None = None) -> None:
+        if self.card is None:
+            return
+        now = now if now is not None else time.time()
+        text = card_mod.render(
+            self.card_rows(providers),
+            now,
+            lang=self.message_lang(),
+            updated_at=usagecache.taken_at(
+                (self.state.data.get("providers") or {}).get(providers[0].name, {}).get("usage")
+            ) if providers else now,
+            next_at=self._next_read_at(now),
+            muted_until=self.muted_until(),
+        )
+        self.card.publish(text, self.message_lang())
+
+    def publish_card(self, results: list[TickResult], now: float | None = None) -> None:
+        if self.card is None:
+            return
+        now = now if now is not None else time.time()
+        rows = [(item.title or item.provider, item.usage, item.error) for item in results]
+        text = card_mod.render(
+            rows,
+            now,
+            lang=self.message_lang(),
+            updated_at=now,
+            next_at=self._next_read_at(now),
+            muted_until=self.muted_until(),
+        )
+        self.card.publish(text, self.message_lang())
 
     # -- daily digest ----------------------------------------------------- #
 

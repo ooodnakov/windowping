@@ -12,6 +12,7 @@ import time
 
 from .config import Config
 from .i18n import t
+from .notify.telegram import send_message
 from .providers import build_matching, build_providers
 from .render import esc, help_html, message_ping, message_ping_failed, telegram_stats, telegram_status
 from .watcher import Watcher
@@ -193,3 +194,37 @@ class BotCommands:
         if command in ("/help", "/start", "/h", "/помощь"):
             return help_html(lang)
         return t(lang, "unknown_command", command=esc(command)) + "\n\n" + help_html(lang)
+
+    # -- buttons ---------------------------------------------------------- #
+
+    def _send(self, chat_id: int, text: str) -> None:
+        token = self.config.telegram.resolve_token()
+        if not token:
+            return
+        send_message(token, chat_id, text, silent=self.config.telegram.in_quiet_hours())
+
+    def handle_callback(self, data: str, chat_id: int, message_id: int, sender_lang: str | None = None) -> None:
+        """A button under the card: act, then repaint the same message."""
+        lang = self.config.telegram.resolve_lang(sender_lang)
+        providers = build_providers(self.config)
+        data = (data or "").strip()
+
+        if data == "refresh":
+            self.watcher.refresh_usage(providers)
+            return
+        if data == "status":
+            self.watcher.repaint_card(providers)
+            return
+        if data == "ping":
+            # Same rules as the watcher: schedule, weekly cap, one ping per window.
+            self.watcher.tick(providers)
+            return
+        if data == "mute":
+            self.watcher.mute()
+            self.watcher.repaint_card(providers)
+            return
+        if data == "stats":
+            self._send(chat_id, self.stats("", lang))
+            return
+        if data == "schedule":
+            self._send(chat_id, self.schedule("", lang))

@@ -9,6 +9,20 @@ All notable changes to this project. Format follows
 The tunnel drops handshakes; the watcher used to treat each drop as an outage and
 say so on Telegram, once per provider per minute.
 
+### Added (card and buttons)
+
+- **One live card** (`card.py`): a single Telegram message, edited in place, with
+  inline buttons — Refresh, Ping, Stats, Schedule, Mute 8h.
+- **`usage_interval`** (default `"30m"`): usage is read on a schedule instead of
+  every 60s tick. A window reset, a failed ping, and the Refresh button force an
+  early read. The tick itself stays at 60s.
+- **`mute_hours`** (default `8`): the Mute button silences routine messages; an
+  escalation is still delivered.
+- **Batched pings**: several windows opening in one tick produce one message.
+- **`failed_ping_cooldown`** (default `"5m"`): after a failed ping the watcher
+  waits before trying again, and forces a fresh usage read instead of trusting
+  the cache.
+
 ### Added
 
 - **Per-provider `schedule`** — `"mon-fri"`, `"mon-fri 07:00-23:30"`,

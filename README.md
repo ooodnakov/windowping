@@ -367,6 +367,44 @@ gpt-5.6-luna · 12.0k tok · 6.9s
 > Telegram bot has exactly one update stream. Use a dedicated bot for `poll = true`.
 > Notifications (piece 1) work fine with any token.
 
+## Telegram: one card, a few buttons
+
+The bot keeps **one message** that it edits, instead of a stream of statuses:
+
+```
+📊 limits
+
+🟢 Codex · plus
+5h     █░░░░░░░░░  14%    2h03m
+weekly ██░░░░░░░░  18%        —
+
+🟠 Command Code
+5h     ░░░░░░░░░░   0%        —
+weekly ██████████ 100%   23h27m
+
+🟢 GLM · lite
+5h     █░░░░░░░░░   1%    1h08m
+weekly ███░░░░░░░  32%    2d20h
+
+updated 20:31 · next auto at 21:01
+[🔄 Refresh] [⏱ Ping]
+[📈 Stats]  [🗓 Schedule]
+[🔇 Mute 8h]
+```
+
+- **Refresh** reads usage right now (the automatic cadence is every 30 minutes,
+  `usage_interval`), then edits the card in place.
+- **Ping** runs one tick: everything the watcher would do on its own schedule.
+- **Stats / Schedule** answer in a separate message.
+- **Mute 8h** silences routine messages (`mute_hours`); an escalation still gets
+  through, because that is the one message worth waking up for.
+
+The card only repaints when something actually changed — a new reading, a new
+decision, or a button — so it does not spend an edit per minute.
+
+Pings that happen in the same tick are reported as **one** message, and network
+failures are counted per incident rather than per provider.
+
 ## Stats and the morning digest
 
 Every ping, failure, weekly stop and usage error is appended to

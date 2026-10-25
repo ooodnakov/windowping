@@ -246,6 +246,26 @@ def message_ping(
     return text
 
 
+def message_pings(items: list[dict], lang: str = "en") -> str:
+    """Several pings in one tick are one message, not one message each."""
+    lines = []
+    for item in items:
+        bits = [f"<b>{esc(item.get('title') or '')}</b>"]
+        if item.get("reset_at"):
+            bits.append(t(lang, "until_reset", when=fmt_ts(item["reset_at"])))
+        extra = []
+        if item.get("seconds"):
+            extra.append(f"{item['seconds']:.1f}s")
+        if item.get("tokens"):
+            extra.append(f"{item['tokens']} tokens")
+        line = " — ".join(bits)
+        if extra:
+            line += " · " + ", ".join(extra)
+        lines.append("• " + line)
+    header = t(lang, "pings_title", count=len(items))
+    return f"✅ <b>{esc(header)}</b>\n" + "\n".join(lines)
+
+
 def message_ping_failed(title: str, error: str | None, lang: str = "en") -> str:
     return (
         f"⚠️ <b>{esc(title)}</b> — {t(lang, 'ping_failed')}\n"

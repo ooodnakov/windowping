@@ -51,7 +51,9 @@ def send_message(
     *,
     silent: bool = False,
     parse_mode: str | None = "HTML",
-) -> bool:
+    reply_markup: dict | None = None,
+) -> int | None:
+    """Send a message and return its id, so the same message can be edited later."""
     text = text[:MAX_MESSAGE]
 
     def _send(body_text: str, mode: str | None) -> dict:
@@ -63,26 +65,85 @@ def send_message(
         }
         if mode:
             payload["parse_mode"] = mode
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         return _call(token, "sendMessage", payload, timeout=20.0)
 
     try:
-        _send(text, parse_mode)
+        result = _send(text, parse_mode)
     except TelegramError as exc:
         # A malformed entity must not swallow the notification: degrade to text.
         if "entit" not in str(exc).lower() and "parse" not in str(exc).lower():
             raise
         from ..render import strip_tags
 
-        _send(strip_tags(text)[:MAX_MESSAGE], None)
-    return True
+        result = _send(strip_tags(text)[:MAX_MESSAGE], None)
+    message_id = (result or {}).get("message_id")
+    return int(message_id) if isinstance(message_id, int) else None
+
+
+def edit_message(
+    token: str,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    *,
+    parse_mode: str | None = "HTML",
+    reply_markup: dict | None = None,
+) -> bool:
+    """Replace a message in place. Editing to the same text is not an error."""
+    text = text[:MAX_MESSAGE]
+
+    def _call_edit(body_text: str, mode: str | None) -> dict:
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": body_text,
+            "disable_web_page_preview": True,
+        }
+        if mode:
+            payload["parse_mode"] = mode
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        return _call(token, "editMessageText", payload, timeout=20.0)
+
+    try:
+        _call_edit(text, parse_mode)
+        return True
+    except TelegramError as exc:
+        lowered = str(exc).lower()
+        if "not modified" in lowered:
+            return True  # the card did not change; that is fine
+        if "entit" in lowered or "parse" in lowered:
+            from ..render import strip_tags
+
+            try:
+                _call_edit(strip_tags(text)[:MAX_MESSAGE], None)
+                return True
+            except TelegramError:
+                return False
+        return False
+
+
+def answer_callback(token: str, callback_id: str, text: str | None = None) -> None:
+    """Stop the button spinner; a failure here is cosmetic and never fatal."""
+    payload: dict = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text[:200]
+    try:
+        _call(token, "answerCallbackQuery", payload, timeout=10.0)
+    except TelegramError:
+        pass
 
 
 class TelegramNotifier:
     """Sends transition messages; stays silent unless the event is enabled."""
 
-    def __init__(self, cfg: TelegramConfig):
+    def __init__(self, cfg: TelegramConfig, muted=None):
         self.cfg = cfg
         self.token = cfg.resolve_token()
+        # The mute button silences routine messages; an escalation always speaks.
+        self.muted = muted or (lambda: False)
 
     @property
     def active(self) -> bool:
@@ -90,6 +151,8 @@ class TelegramNotifier:
 
     def notify(self, event: str, text: str) -> None:
         if not self.active or event not in self.cfg.notify_events:
+            return
+        if event != "escalate" and self.muted():
             return
         chat_id = self.cfg.chat_id
         if chat_id is None:
@@ -105,25 +168,60 @@ class TelegramNotifier:
 class TelegramPoller:
     """Long-poll ``getUpdates`` and hand text messages to a callback."""
 
-    def __init__(self, cfg: TelegramConfig, on_message):
+    def __init__(self, cfg: TelegramConfig, on_message, on_callback=None):
         self.cfg = cfg
         self.token = cfg.resolve_token()
         self.on_message = on_message
+        self.on_callback = on_callback
         self._offset: int | None = None
 
     def allowed(self, chat_id: int) -> bool:
         allowed = self.cfg.allow_chat_ids or ((self.cfg.chat_id,) if self.cfg.chat_id else ())
         return chat_id in allowed
 
-    def reply(self, chat_id: int, text: str) -> None:
+    def reply(self, chat_id: int, text: str, reply_markup: dict | None = None) -> int | None:
         try:
             # Quiet hours cover replies too: an answer at 3am should not buzz.
-            send_message(self.token, chat_id, text, silent=self.cfg.silent or self.cfg.in_quiet_hours())
+            return send_message(
+                self.token,
+                chat_id,
+                text,
+                silent=self.cfg.silent or self.cfg.in_quiet_hours(),
+                reply_markup=reply_markup,
+            )
         except Exception as exc:  # noqa: BLE001 - transport noise must not kill the loop
             print(f"telegram reply failed: {exc}", flush=True)
+            return None
+
+    def edit(self, chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
+        try:
+            return edit_message(self.token, chat_id, message_id, text, reply_markup=reply_markup)
+        except Exception as exc:  # noqa: BLE001 - an edit is never worth a crash
+            print(f"telegram edit failed: {exc}", flush=True)
+            return False
+
+    def handle_callback(self, callback: dict) -> None:
+        """A button press: answer it, then let the handler rewrite the card."""
+        data = str(callback.get("data") or "")
+        message = callback.get("message") or {}
+        chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
+        if not self.on_callback or not data or not chat_id or not message_id:
+            return
+        if not self.allowed(int(chat_id)):
+            return
+        sender_lang = (callback.get("from") or {}).get("language_code")
+        answer_callback(self.token, str(callback.get("id") or ""))
+        try:
+            self.on_callback(data, int(chat_id), int(message_id), sender_lang)
+        except Exception as exc:  # noqa: BLE001 - a button must not kill polling
+            print(f"telegram callback failed: {type(exc).__name__}: {exc}", flush=True)
 
     def handle_update(self, update: dict) -> None:
         """Answer one update. Any failure here is contained to this message."""
+        if update.get("callback_query"):
+            self.handle_callback(update["callback_query"])
+            return
         message = update.get("message") or {}
         chat_id = (message.get("chat") or {}).get("id")
         text = (message.get("text") or "").strip()
@@ -154,7 +252,11 @@ class TelegramPoller:
                 updates = _call(
                     self.token,
                     "getUpdates",
-                    {"offset": self._offset, "timeout": 45, "allowed_updates": ["message"]},
+                    {
+                        "offset": self._offset,
+                        "timeout": 45,
+                        "allowed_updates": ["message", "callback_query"],
+                    },
                     timeout=60.0,
                 )
             except TelegramError as exc:

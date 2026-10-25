@@ -73,6 +73,9 @@ class EscalationTest(unittest.TestCase):
         general = General(
             state_file=Path(tmp) / "state.json",
             escalate_after=escalate_after,
+            # These tests model one failure per tick, so the post-failure cooldown
+            # that protects a real deployment would only get in the way.
+            failed_ping_cooldown=0.0,
         )
         config = Config(
             general=general,

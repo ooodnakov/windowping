@@ -131,6 +131,7 @@ class Collector:
 
 
 def make_general(tmp, **kwargs) -> General:
+    kwargs.setdefault("failed_ping_cooldown", 0.0)
     return General(
         state_file=Path(tmp) / "state.json",
         retry_delay=0.0,

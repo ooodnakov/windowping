@@ -14,6 +14,7 @@ from .bot import BotCommands
 from . import doctor as doctor_mod
 from .config import DEFAULT_CONFIG_PATH, load, write_default_config
 from .history import History, default_path
+from .card import CardPublisher
 from .notify import TelegramNotifier, TelegramPoller, send_message
 from .providers import build_matching, build_providers
 from .render import message_test, stats_text, status_text, usage_lines
@@ -182,13 +183,18 @@ def cmd_watch(args) -> int:
     if not providers:
         print("no providers enabled", file=sys.stderr)
         return 2
-    notifier = TelegramNotifier(config.telegram)
-    watcher = Watcher(config, notifier)
+    watcher = Watcher(config)
+    # The notifier has to know about the mute button, and the mute state lives in
+    # the watcher's state file, so the watcher is built first.
+    notifier = TelegramNotifier(config.telegram, muted=watcher.muted)
+    watcher.notifier = notifier
+    if notifier.active and config.general.card:
+        watcher.card = CardPublisher(config.telegram, watcher.state)
 
     stop = threading.Event()
     if notifier.active and config.telegram.poll and not args.no_bot:
         commands = BotCommands(config, watcher)
-        poller = TelegramPoller(config.telegram, commands.handle)
+        poller = TelegramPoller(config.telegram, commands.handle, commands.handle_callback)
         thread = threading.Thread(
             target=poller.poll_forever, kwargs={"stop_event": stop}, daemon=True, name="telegram-bot"
         )
