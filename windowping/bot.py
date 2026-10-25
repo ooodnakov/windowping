@@ -7,6 +7,7 @@ configured one. Every dynamic value is escaped in ``render``.
 
 from __future__ import annotations
 
+import datetime as dt
 import time
 
 from .config import Config
@@ -121,6 +122,38 @@ class BotCommands:
         watcher.state.save()
         return "\n\n".join(blocks)
 
+    def schedule(self, argument: str = "", lang: str = "en") -> str:
+        """Show each provider's ping schedule and the next moment it opens."""
+        now = dt.datetime.now()
+        wanted = argument.strip().lower()
+        aliases = PROVIDER_ALIASES
+        providers = build_providers(self.config)
+        if wanted:
+            base = aliases.get(wanted, wanted)
+            providers = [p for p in providers if p.name == base or p.name.split(":")[0] == base]
+        if not providers:
+            return t(lang, "schedule_header") + "\n—"
+
+        lines = []
+        for provider in providers:
+            schedule = self.watcher.provider_schedule(provider)
+            title = esc(provider.title)
+            if schedule is None:
+                state = t(lang, "schedule_always")
+                lines.append(f"<b>{title}</b>: {state}")
+                continue
+            if schedule.allows(now):
+                state = t(lang, "schedule_allowed")
+            else:
+                upcoming = schedule.next_open(now)
+                state = (
+                    t(lang, "schedule_never")
+                    if upcoming is None
+                    else t(lang, "schedule_next", when=upcoming.strftime("%a %H:%M"))
+                )
+            lines.append(f"<b>{title}</b>: {esc(schedule.describe())} — {state}")
+        return t(lang, "schedule_header") + "\n" + "\n".join(lines) + "\n\n" + t(lang, "schedule_hint")
+
     def stats(self, argument: str = "", lang: str = "en") -> str:
         days = 7
         argument = argument.strip()
@@ -155,6 +188,8 @@ class BotCommands:
             return self.ping(argument, lang)
         if command in ("/stats", "/stat", "/стата", "/статистика"):
             return self.stats(argument, lang)
+        if command in ("/schedule", "/sched", "/расписание"):
+            return self.schedule(argument, lang)
         if command in ("/help", "/start", "/h", "/помощь"):
             return help_html(lang)
         return t(lang, "unknown_command", command=esc(command)) + "\n\n" + help_html(lang)

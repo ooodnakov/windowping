@@ -18,6 +18,13 @@ ping_timeout = "180s"
 workdir = "~"
 # Failed pings in a row before an explicit "needs a hand" message (0 = never).
 escalate_after = 3
+# A dropped handshake is not a broken account: connection errors are retried
+# inside the same tick. Delays double (5s, 10s, ...).
+ping_retries = 2
+read_retries = 1
+retry_delay = "5s"
+# One "network is down" message per incident, not one per provider per tick.
+network_notify_cooldown = "30m"
 
 # Paths are optional; these are the defaults.
 # state_file = "~/.local/state/windowping/state.json"
@@ -48,6 +55,10 @@ base_url = "https://api.commandcode.ai"
 
 [providers.glm]
 enabled = true
+# Only ping inside this schedule; usage is still read outside it.
+# "always" (default), "mon-fri", "mon-fri 07:00-23:30", "weekends 10:00-02:00",
+# "never". A malformed value fails at startup.
+schedule = "mon-fri"
 # Coding-plan tier model: legacy models (glm-4.5-flash) are served outside the
 # plan and never start a 5h window.
 model = "glm-5.3-flash"

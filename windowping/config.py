@@ -62,6 +62,13 @@ class General:
     read_timeout: float = 20.0
     # N failed pings in a row are worth an explicit "needs a hand" message; 0 = never.
     escalate_after: int = 3
+    # Connection-level failures are worth retrying inside the same tick: the
+    # tunnel drops a handshake now and then, and the next attempt usually works.
+    ping_retries: int = 2
+    read_retries: int = 1
+    retry_delay: float = 5.0
+    # One network-failure message per incident, not one per provider per tick.
+    network_notify_cooldown: float = 1800.0
     workdir: Path = field(default_factory=lambda: Path.home())
     state_file: Path = DEFAULT_STATE_PATH
     # Append-only event log behind ``windowping stats``; None = next to the state file.
@@ -91,6 +98,12 @@ class ProviderConfig:
 
     def flag(self, key, default: bool) -> bool:
         return _bool(self.options.get(key), default)
+
+    def schedule(self):
+        """Per-provider ping schedule, or None for "always" (see schedule.py)."""
+        from .schedule import parse
+
+        return parse(self.options.get("schedule"))
 
 
 @dataclass
@@ -168,12 +181,24 @@ ping_timeout = "180s"
 workdir = "~"
 # Failed pings in a row before an explicit "needs a hand" message (0 = never).
 escalate_after = 3
+# Connection errors are retried inside the same tick (a dropped handshake is not
+# a broken account). Delays double: 5s, 10s, ...
+ping_retries = 2
+read_retries = 1
+retry_delay = "5s"
+# When the tunnel is down, every provider fails at once. Send one message per
+# incident instead of one per provider: 30 minutes between such messages.
+network_notify_cooldown = "30m"
 
 # Paths are optional; these are the defaults.
 # state_file = "~/.local/state/windowping/state.json"
 
 [providers.codex]
 enabled = true
+# When this provider may be pinged: "always" (default), "mon-fri",
+# "mon-fri 07:00-23:30", "weekends 10:00-02:00", "never". Usage is still read
+# outside the schedule; only pings are held back.
+# schedule = "always"
 # "" = pick the cheapest model the Codex catalog offers at ping time.
 model = ""
 effort = "low"
@@ -309,6 +334,10 @@ def load(path: Path | None = None) -> Config:
         ping_timeout=parse_duration(general_raw.get("ping_timeout"), 180.0),
         read_timeout=parse_duration(general_raw.get("read_timeout"), 20.0),
         escalate_after=int(general_raw.get("escalate_after", 3) or 0),
+        ping_retries=max(0, int(general_raw.get("ping_retries", 2) or 0)),
+        read_retries=max(0, int(general_raw.get("read_retries", 1) or 0)),
+        retry_delay=parse_duration(general_raw.get("retry_delay"), 5.0),
+        network_notify_cooldown=parse_duration(general_raw.get("network_notify_cooldown"), 1800.0),
         workdir=_path(general_raw.get("workdir"), Path.home()),
         state_file=_path(general_raw.get("state_file"), DEFAULT_STATE_PATH),
         history_file=(
@@ -325,6 +354,17 @@ def load(path: Path | None = None) -> Config:
         section = dict(section or {})
         enabled = _bool(section.pop("enabled", True), True)
         providers[name] = ProviderConfig(name=name, enabled=enabled, options=section)
+
+    # A malformed per-provider schedule must fail here, at startup, not be
+    # silently ignored while the provider keeps pinging at the weekend.
+    from .schedule import parse as parse_schedule
+
+    for name, section in (raw.get("providers") or {}).items():
+        spec = (section or {}).get("schedule")
+        try:
+            parse_schedule(spec)
+        except ValueError as exc:
+            raise ValueError(f"providers.{name}.schedule: {exc}") from None
 
     tg_raw = raw.get("telegram") or {}
     chat_id = tg_raw.get("chat_id")

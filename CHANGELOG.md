@@ -4,6 +4,33 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semantic](https://semver.org/).
 
+## [Unreleased]
+
+The tunnel drops handshakes; the watcher used to treat each drop as an outage and
+say so on Telegram, once per provider per minute.
+
+### Added
+
+- **Per-provider `schedule`** — `"mon-fri"`, `"mon-fri 07:00-23:30"`,
+  `"weekends 10:00-02:00"` (wraps midnight), `"never"`, `"always"` (default).
+  Gates pings only; usage is still read outside the schedule. Malformed values
+  fail at config load.
+- **`/schedule`** (и `/расписание`) in the bot: each provider's window and the
+  next moment it opens.
+- **Retries inside the tick** — connection-level failures are retried
+  `ping_retries` times with doubling delay, and usage reads `read_retries` times.
+  A provider that answers with an error (401, 500, bad payload) is never retried.
+- **Error classification** (`errors.py`): `network` vs `provider`.
+
+### Changed
+
+- **One message per outage.** A failed ping now notifies on the first failure and
+  at every `escalate_after` threshold, not on every tick; a recovered provider
+  says so.
+- **One network message per incident.** While the tunnel is down every provider
+  fails at once, so network-class failures share a
+  `network_notify_cooldown` (default 30 minutes) instead of sending N messages.
+
 ## [0.3.0] — 2026-10-23
 
 ### Added

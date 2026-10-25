@@ -56,6 +56,7 @@ STRINGS: dict[str, dict[str, str]] = {
 /ping codex — one provider
 /stats — what it did over 7 days
 /stats 30 — over 30 days
+/schedule — when each provider may be pinged
 /help — this message
 
 <b>How it works</b>
@@ -69,6 +70,13 @@ weekly  ███░░░░░░░  30%  6d7h
 🟢 fine      🟠 week used up
 🔴 error     ⚪️ no data</pre>
 The last column is the time left until the reset.""",
+        "schedule_header": "<b>Ping schedule</b>",
+        "schedule_always": "always",
+        "schedule_allowed": "allowed now",
+        "schedule_next": "next {when}",
+        "schedule_never": "never",
+        "schedule_hint": "Set <code>schedule</code> per provider in config.toml: "
+                         "\"mon-fri\", \"mon-fri 07:00-23:30\", \"weekends\", \"never\".",
     },
     "ru": {
         "limits_header": "лимиты",
@@ -113,6 +121,7 @@ The last column is the time left until the reset.""",
 /ping codex — пнуть один
 /stats — что сделано за 7 дней
 /stats 30 — за 30 дней
+/schedule — когда можно пинговать каждого
 /help — это сообщение
 
 <b>Как это работает</b>
@@ -126,6 +135,13 @@ weekly  ███░░░░░░░  30%  6d7h
 🟢 всё ок    🟠 неделя выбрана
 🔴 ошибка    ⚪️ нет данных</pre>
 Последняя колонка — сколько осталось до сброса.""",
+        "schedule_header": "<b>Расписание пингов</b>",
+        "schedule_always": "всегда",
+        "schedule_allowed": "можно сейчас",
+        "schedule_next": "следующий {when}",
+        "schedule_never": "никогда",
+        "schedule_hint": "Задаётся по провайдеру в config.toml: "
+                         "\"mon-fri\", \"mon-fri 07:00-23:30\", \"weekends\", \"never\".",
     },
 }
 

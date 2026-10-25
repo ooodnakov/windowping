@@ -283,6 +283,26 @@ windowping ping codex:work
 `/status codex` works the same way in the bot. An account with `enabled = false`
 is skipped without touching the others.
 
+## Per-provider schedule
+
+Not every plan is used every day, and a 5h window opened at the wrong time is a
+wasted ping. Each provider can carry its own schedule:
+
+```toml
+[providers.glm]
+schedule = "mon-fri"                # no weekend pings
+# schedule = "mon-fri 07:00-23:30"  # weekdays, working hours only
+# schedule = "weekends 10:00-02:00" # wraps midnight
+# schedule = "never"                # keep reading usage, never ping
+```
+
+The default is `always`. A malformed spec fails at startup, not at 3am. The
+schedule gates **pings only**: usage is still read, so `/status`, the dashboard
+and the weekly meter stay current, and a metered read costs nothing.
+
+Check it from the bot with `/schedule` (or `/расписание`): it prints each
+provider's window and the next moment it opens.
+
 ## Telegram
 
 Two independent pieces, both optional:

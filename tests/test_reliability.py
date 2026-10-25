@@ -89,7 +89,9 @@ class EscalationTest(unittest.TestCase):
             for _ in range(3):
                 watcher.tick([provider])
             kinds = [event for event, _ in collector.events]
-            self.assertEqual(kinds.count(ERROR), 3)
+            # One message per outage: the first failure and the escalation at the
+            # threshold, not one message per failed tick.
+            self.assertEqual(kinds.count(ERROR), 2)
             self.assertEqual(kinds.count(ESCALATE), 1)
             self.assertEqual(State(Path(tmp) / "state.json").provider("fake")["fail_streak"], 3)
 
