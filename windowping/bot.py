@@ -208,6 +208,9 @@ class BotCommands:
         lang = self.config.telegram.resolve_lang(sender_lang)
         providers = build_providers(self.config)
         data = (data or "").strip()
+        # One line per button press: enough to tell a manual refresh from the
+        # scheduled one when reading the journal later.
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} button: {data}", flush=True)
 
         if data == "refresh":
             self.watcher.refresh_usage(providers)
