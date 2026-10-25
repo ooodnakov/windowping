@@ -1,51 +1,53 @@
-# Changelog
+## [0.4.0] — 2026-10-25
 
-All notable changes to this project. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
-[semantic](https://semver.org/).
-
-## [Unreleased]
-
-The tunnel drops handshakes; the watcher used to treat each drop as an outage and
-say so on Telegram, once per provider per minute.
-
-### Added (card and buttons)
-
-- **One live card** (`card.py`): a single Telegram message, edited in place, with
-  inline buttons — Refresh, Ping, Stats, Schedule, Mute 8h.
-- **`usage_interval`** (default `"30m"`): usage is read on a schedule instead of
-  every 60s tick. A window reset, a failed ping, and the Refresh button force an
-  early read. The tick itself stays at 60s.
-- **`mute_hours`** (default `8`): the Mute button silences routine messages; an
-  escalation is still delivered.
-- **Batched pings**: several windows opening in one tick produce one message.
-- **`/card` and the 🆕 button**: the card is deleted and re-sent at the bottom of
-  the chat (edits cannot move a message). Cards are pinned on send.
-- **`failed_ping_cooldown`** (default `"5m"`): after a failed ping the watcher
-  waits before trying again, and forces a fresh usage read instead of trusting
-  the cache.
+Two and a half days of the event log, read closely: 30 failures, every one of them
+connection-level (reset, TLS handshake, SSL EOF, DNS) and not a single HTTP error
+from a provider. `chatgpt.com` and `api.commandcode.ai` resolve into the router's
+fake-IP range and travel through sing-box, while `api.z.ai` goes direct — which is
+why GLM never complained. Every one of those drops produced a Telegram message,
+one per provider per tick.
 
 ### Added
 
+- **One live card** (`card.py`): a single Telegram message, edited in place, with
+  inline buttons — Refresh, Ping, Stats, Schedule, New card, Mute 8h. Pinned on
+  send, and repainted only when a reading, a decision or a button changed
+  something; the footer carries absolute times so a passing minute is not an edit.
+- **`/card`** (и `/карточка`) and the 🆕 button: the old card is deleted and a
+  fresh one is posted at the bottom, because editing cannot move a message.
+- **`usage_interval`** (default `"30m"`): usage is read on a schedule instead of
+  every 60s tick. A window reset, a failed ping, and the Refresh button force an
+  early read; the tick stays at 60s, so pings still land on the reset. With three
+  providers this is 144 requests a day instead of 4 320.
 - **Per-provider `schedule`** — `"mon-fri"`, `"mon-fri 07:00-23:30"`,
   `"weekends 10:00-02:00"` (wraps midnight), `"never"`, `"always"` (default).
-  Gates pings only; usage is still read outside the schedule. Malformed values
-  fail at config load.
+  Gates pings only; usage is still read outside it. Malformed values fail at
+  config load, not at 3am.
 - **`/schedule`** (и `/расписание`) in the bot: each provider's window and the
   next moment it opens.
+- **`mute_hours`** (default `8`): the Mute button silences routine messages; an
+  escalation is still delivered, because that is the one worth waking up for.
+- **Batched pings**: windows opening in the same tick produce one message.
+- **`failed_ping_cooldown`** (default `"5m"`): after a failed ping the watcher
+  waits and re-reads usage instead of trusting the cache and hammering the
+  provider.
 - **Retries inside the tick** — connection-level failures are retried
   `ping_retries` times with doubling delay, and usage reads `read_retries` times.
   A provider that answers with an error (401, 500, bad payload) is never retried.
-- **Error classification** (`errors.py`): `network` vs `provider`.
+- **Error classification** (`errors.py`): `network` vs `provider`, and
+  `ping_failed` events carry that `kind`.
 
 ### Changed
 
-- **One message per outage.** A failed ping now notifies on the first failure and
-  at every `escalate_after` threshold, not on every tick; a recovered provider
-  says so.
+- **One message per outage.** A failed ping notifies on the first failure and at
+  every `escalate_after` threshold, not on every tick; a recovered provider says so.
 - **One network message per incident.** While the tunnel is down every provider
-  fails at once, so network-class failures share a
-  `network_notify_cooldown` (default 30 minutes) instead of sending N messages.
+  fails at once, so network-class failures share a `network_notify_cooldown`
+  (default 30 minutes) instead of sending N messages.
+- **A cached reading survives a broken read**, and the failure is recorded without
+  flipping the provider into an error state — the numbers on screen stay honest.
+- **A confirmed reset is remembered** (`reset_seen`), so a provider that cannot be
+  pinged (weekend schedule, exhausted weekly) does not trigger a read per tick.
 
 ## [0.3.0] — 2026-10-23
 
