@@ -396,6 +396,9 @@ updated 20:31 · next auto at 21:01
   `usage_interval`), then edits the card in place.
 - **Ping** runs one tick: everything the watcher would do on its own schedule.
 - **Stats / Schedule** answer in a separate message.
+- **🆕 New card** (or `/card`, `/карточка`) deletes the old message and posts a
+  fresh one at the bottom — edits keep a message where it was, and after a long
+  day that is above the fold. Every new card is pinned, so it also stays on top.
 - **Mute 8h** silences routine messages (`mute_hours`); an escalation still gets
   through, because that is the one message worth waking up for.
 

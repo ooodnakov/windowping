@@ -191,6 +191,10 @@ class BotCommands:
             return self.stats(argument, lang)
         if command in ("/schedule", "/sched", "/расписание"):
             return self.schedule(argument, lang)
+        if command in ("/card", "/карточка"):
+            # A fresh card at the bottom of the chat; no text reply on top of it.
+            self.watcher.recreate_card(build_providers(self.config))
+            return None
         if command in ("/help", "/start", "/h", "/помощь"):
             return help_html(lang)
         return t(lang, "unknown_command", command=esc(command)) + "\n\n" + help_html(lang)
@@ -225,6 +229,9 @@ class BotCommands:
         if data == "mute":
             self.watcher.mute()
             self.watcher.repaint_card(providers)
+            return
+        if data == "new":
+            self.watcher.recreate_card(providers)
             return
         if data == "stats":
             self._send(chat_id, self.stats("", lang))

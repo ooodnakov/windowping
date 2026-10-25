@@ -537,21 +537,28 @@ class Watcher:
             rows.append((provider.title, usage, error))
         return rows
 
+    def _card_text(self, rows, now: float) -> str:
+        return card_mod.render(
+            rows,
+            now,
+            lang=self.message_lang(),
+            updated_at=now,
+            next_at=self._next_read_at(now),
+            muted_until=self.muted_until(),
+        )
+
+    def recreate_card(self, providers: list[Provider], now: float | None = None) -> None:
+        """A fresh card at the bottom: the old one is deleted, not left behind."""
+        if self.card is None:
+            return
+        now = now if now is not None else time.time()
+        self.card.recreate(self._card_text(self.card_rows(providers), now), self.message_lang())
+
     def repaint_card(self, providers: list[Provider], now: float | None = None) -> None:
         if self.card is None:
             return
         now = now if now is not None else time.time()
-        text = card_mod.render(
-            self.card_rows(providers),
-            now,
-            lang=self.message_lang(),
-            updated_at=usagecache.taken_at(
-                (self.state.data.get("providers") or {}).get(providers[0].name, {}).get("usage")
-            ) if providers else now,
-            next_at=self._next_read_at(now),
-            muted_until=self.muted_until(),
-        )
-        self.card.publish(text, self.message_lang())
+        self.card.publish(self._card_text(self.card_rows(providers), now), self.message_lang())
 
     def publish_card(self, results: list[TickResult], now: float | None = None) -> None:
         if self.card is None:

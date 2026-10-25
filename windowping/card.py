@@ -15,7 +15,7 @@ import time
 
 from .config import TelegramConfig
 from .i18n import t
-from .notify.telegram import edit_message, send_message
+from .notify.telegram import delete_message, edit_message, pin_message, send_message
 from .providers.base import Usage
 from .render import fmt_ts, telegram_status
 
@@ -33,6 +33,7 @@ def keyboard(lang: str = "en") -> dict:
                 {"text": t(lang, "btn_schedule"), "callback_data": "schedule"},
             ],
             [
+                {"text": t(lang, "btn_new"), "callback_data": "new"},
                 {"text": t(lang, "btn_mute"), "callback_data": "mute"},
             ],
         ]
@@ -94,5 +95,19 @@ class CardPublisher:
             self.state.data["card_message_id"] = sent
             self.state.save()
             self._last_text = text
+            # Pinned cards stay visible while the chat grows around them.
+            pin_message(self.token, int(chat_id), sent)
             return True
         return False
+
+    def recreate(self, text: str, lang: str = "en") -> bool:
+        """Drop the old card and put a fresh one at the bottom of the chat."""
+        chat_id = self.cfg.chat_id
+        if not self.active or chat_id is None:
+            return False
+        old = self.state.data.get("card_message_id")
+        if old:
+            delete_message(self.token, int(chat_id), int(old))
+            self.state.data.pop("card_message_id", None)
+        self._last_text = None
+        return self.publish(text, lang, silent=True)

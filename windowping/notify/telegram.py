@@ -125,6 +125,29 @@ def edit_message(
         return False
 
 
+def delete_message(token: str, chat_id: int, message_id: int) -> bool:
+    """Delete a message the bot sent. Old or already-deleted is not an error."""
+    try:
+        _call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id}, timeout=10.0)
+        return True
+    except TelegramError:
+        return False
+
+
+def pin_message(token: str, chat_id: int, message_id: int, *, silent: bool = True) -> bool:
+    """Pin the card so it stays at the top of the chat; failure is cosmetic."""
+    try:
+        _call(
+            token,
+            "pinChatMessage",
+            {"chat_id": chat_id, "message_id": message_id, "disable_notification": silent},
+            timeout=10.0,
+        )
+        return True
+    except TelegramError:
+        return False
+
+
 def answer_callback(token: str, callback_id: str, text: str | None = None) -> None:
     """Stop the button spinner; a failure here is cosmetic and never fatal."""
     payload: dict = {"callback_query_id": callback_id}

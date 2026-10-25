@@ -123,7 +123,7 @@ class ResetReadTest(unittest.TestCase):
 class CardRenderTest(unittest.TestCase):
     def test_keyboard_has_every_button(self):
         buttons = [b["callback_data"] for row in card_mod.keyboard("en")["inline_keyboard"] for b in row]
-        self.assertEqual(buttons, ["refresh", "ping", "stats", "schedule", "mute"])
+        self.assertEqual(buttons, ["refresh", "ping", "stats", "schedule", "new", "mute"])
 
     def test_card_shows_provider_and_footer(self):
         usage = Usage(provider="fake", five=Window(pct=10, reset_at=NOW + 3600), weekly=Window(pct=20), plan="plus")
@@ -161,6 +161,23 @@ class PublisherTest(unittest.TestCase):
                 publisher.publish("same", "en")
             send.assert_called_once()
             edit.assert_not_called()
+
+
+class RecreateTest(unittest.TestCase):
+    def test_recreate_deletes_the_old_card_and_sends_a_new_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            watcher = Watcher(make_config(tmp))
+            publisher = card_mod.CardPublisher(watcher.config.telegram, watcher.state)
+            with mock.patch.object(card_mod, "send_message", side_effect=[111, 222]) as send, \
+                 mock.patch.object(card_mod, "delete_message", return_value=True) as delete, \
+                 mock.patch.object(card_mod, "pin_message", return_value=True) as pin, \
+                 mock.patch.object(card_mod, "edit_message", return_value=True):
+                publisher.publish("first", "en")
+                publisher.recreate("second", "en")
+            self.assertEqual(send.call_count, 2)
+            delete.assert_called_once_with(publisher.token, 1, 111)
+            self.assertEqual(watcher.state.data["card_message_id"], 222)
+            self.assertEqual(pin.call_count, 2)   # each new card is pinned
 
 
 class CallbackTest(unittest.TestCase):

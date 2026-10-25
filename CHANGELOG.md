@@ -19,6 +19,8 @@ say so on Telegram, once per provider per minute.
 - **`mute_hours`** (default `8`): the Mute button silences routine messages; an
   escalation is still delivered.
 - **Batched pings**: several windows opening in one tick produce one message.
+- **`/card` and the 🆕 button**: the card is deleted and re-sent at the bottom of
+  the chat (edits cannot move a message). Cards are pinned on send.
 - **`failed_ping_cooldown`** (default `"5m"`): after a failed ping the watcher
   waits before trying again, and forces a fresh usage read instead of trusting
   the cache.
