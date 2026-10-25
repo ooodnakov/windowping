@@ -439,9 +439,12 @@ class Watcher:
                 five.reset_at is not None
                 and now >= five.reset_at + self.config.general.reset_buffer
                 and entry.get("pinged_for_reset") != five.reset_at
+                and entry.get("reset_seen") != five.reset_at
             ):
-                # The reset we were waiting for has happened: confirm it, so the
-                # ping lands on the new window instead of a stale one.
+                # The reset we were waiting for has happened: confirm it once, so
+                # the ping lands on the new window instead of a stale one. Reading
+                # it again on every following tick would be a read per minute for
+                # a provider that is off-schedule or out of weekly quota.
                 due = True
         if not due:
             return usage
@@ -465,6 +468,7 @@ class Watcher:
         entry.pop("last_read_error", None)
         entry.pop("refresh_requested", None)
         entry["usage"] = usagecache.from_usage(fresh, now)
+        entry["reset_seen"] = fresh.five.reset_at
         self._reads_this_tick = getattr(self, "_reads_this_tick", 0) + 1
         return fresh
 

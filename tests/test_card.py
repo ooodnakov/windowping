@@ -85,6 +85,41 @@ class UsageIntervalTest(unittest.TestCase):
             self.assertIsNone(results[0].error)
 
 
+class ResetReadTest(unittest.TestCase):
+    def test_a_confirmed_reset_is_not_re_read_every_tick(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = CountingProvider()
+            # A window that has already reset: the watcher wants one confirmation.
+            provider.usage = lambda: Usage(
+                provider="fake", five=Window(pct=100, reset_at=NOW - 600), weekly=Window(pct=10)
+            )
+            watcher = Watcher(make_config(tmp, usage_interval=1800.0, failed_ping_cooldown=0.0))
+            with mock.patch("windowping.watcher.time.time", return_value=NOW):
+                watcher.tick([provider])          # reads, pings, reads again (probe)
+                calls_after_first = provider.usage_calls
+                for _ in range(5):
+                    watcher.tick([provider])
+            self.assertEqual(provider.usage_calls, calls_after_first)
+
+    def test_an_off_schedule_provider_is_not_read_every_tick(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = CountingProvider()
+            provider.cfg = None
+            provider.usage = lambda: Usage(
+                provider="fake", five=Window(pct=100, reset_at=NOW - 600), weekly=Window(pct=10)
+            )
+            config = make_config(tmp, usage_interval=1800.0, failed_ping_cooldown=0.0)
+            from windowping.config import ProviderConfig
+            provider.cfg = ProviderConfig(name="fake", options={"schedule": "never"})
+            watcher = Watcher(config)
+            with mock.patch("windowping.watcher.time.time", return_value=NOW):
+                watcher.tick([provider])
+                calls = provider.usage_calls
+                for _ in range(5):
+                    watcher.tick([provider])
+            self.assertEqual(provider.usage_calls, calls)
+
+
 class CardRenderTest(unittest.TestCase):
     def test_keyboard_has_every_button(self):
         buttons = [b["callback_data"] for row in card_mod.keyboard("en")["inline_keyboard"] for b in row]
