@@ -19,6 +19,31 @@ gpt-5.6-luna · 5h window reset at Wed 19:52 MSK
 
 Pure Python 3.11+, standard library only, no dependencies, no telemetry.
 
+<!-- TOC START -->
+## Table of contents
+
+- [What it does](#what-it-does)
+- [Supported providers](#supported-providers)
+  - [Codex ping modes](#codex-ping-modes)
+  - [Claude ping](#claude-ping)
+  - [Claude API ping (opt-in)](#claude-api-ping-opt-in)
+- [Install](#install)
+  - [From PyPI](#from-pypi)
+- [Usage](#usage)
+- [Config](#config)
+  - [Several accounts of one provider](#several-accounts-of-one-provider)
+- [Per-provider schedule](#per-provider-schedule)
+- [Telegram](#telegram)
+- [Telegram: one card, a few buttons](#telegram-one-card-a-few-buttons)
+- [Stats and the morning digest](#stats-and-the-morning-digest)
+- [Doctor](#doctor)
+- [systemd](#systemd)
+- [How the decision is made](#how-the-decision-is-made)
+- [Tests](#tests)
+- [Adding a provider](#adding-a-provider)
+- [License](#license)
+<!-- TOC END -->
+
 ## What it does
 
 | Job | Mechanism | Cost |
