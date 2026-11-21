@@ -11,3 +11,8 @@ venv/
 
 # Local working config: holds a real bot token, never commit it.
 config.toml
+
+# docs site build
+/site/node_modules
+/site/.vitepress/cache
+/site/.vitepress/dist

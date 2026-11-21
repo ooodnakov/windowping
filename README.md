@@ -1,5 +1,10 @@
 # windowping
 
+[![docs](https://img.shields.io/badge/docs-ooodnakov.github.io%2Fwindowping-059669)](https://ooodnakov.github.io/windowping/)
+[![PyPI](https://img.shields.io/pypi/v/windowping)](https://pypi.org/project/windowping/)
+
+**[Documentation →](https://ooodnakov.github.io/windowping/)**
+
 Keep your **Codex**, **Command Code**, **GLM Coding Plan** and **Claude Code**
 5-hour rate-limit windows back-to-back.
 

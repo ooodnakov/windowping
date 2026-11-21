@@ -57,7 +57,7 @@ windowping = "windowping.cli:main"
 Homepage = "https://github.com/ooodnakov/windowping"
 Repository = "https://github.com/ooodnakov/windowping"
 Issues = "https://github.com/ooodnakov/windowping/issues"
-Documentation = "https://github.com/ooodnakov/windowping#readme"
+Documentation = "https://ooodnakov.github.io/windowping/"
 Changelog = "https://github.com/ooodnakov/windowping/blob/master/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
