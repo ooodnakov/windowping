@@ -5,9 +5,6 @@ hero:
   name: windowping
   text: Keep 5-hour rate-limit windows back-to-back.
   tagline: Watches each provider's reset time and fires one tiny request right after rollover — pure Python 3.11+, stdlib only, zero dependencies.
-  image:
-    src: /logo.svg
-    alt: windowping
   actions:
     - theme: brand
       text: Get Started
