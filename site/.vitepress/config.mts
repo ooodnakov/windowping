@@ -9,6 +9,11 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: '/windowping/logo.svg', type: 'image/svg+xml' }],
+    [
+      'script',
+      { id: 'check-color-theme' },
+      "(()=>{try{const t=localStorage.getItem('ooodnakov-docs-theme');if(t&&/^(solarized|gruvbox|catppuccin|nord|tokyo-night|dracula|rose-pine)$/.test(t))document.documentElement.setAttribute('data-theme',t)}catch{}})()",
+    ],
   ],
 
   themeConfig: {
